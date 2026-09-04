@@ -1,0 +1,307 @@
+# 精读批注 Skill v2.7
+
+> 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）。
+> 适合：小说精读、故事拆解、叙事分析、文笔拆解、结构化语料构建。
+> 本仓库即**完整可运行的 Skill 包**——放到 TRAE / Cursor / Claude Code 的 skills 目录即可使用，也支持纯手动模式（把 `SKILL.md` 注入任意大模型）。
+> **版本**：skill_version = `2.7.0` / schema_version = `2.7.0`。frontmatter 版本、`references/schema.md` 声明、批注 JSON 的 `schema_version`、`_metadata.skill_version` 四者严格一致（L1–L3 产物向后兼容 `2.6.0`）。
+
+---
+
+## 一、快速安装
+
+### 方式 1：作为 IDE Skill（推荐）
+
+```bash
+# Cursor
+cp -r close-reading-annotator/ ~/.cursor/skills/
+
+# Claude Code
+cp -r close-reading-annotator/ ~/.claude/skills/
+
+# TRAE 等其他 IDE：把整个目录放到 skills/ 下即可（会自动读取 SKILL.md）
+```
+
+然后直接说：「精读这段：粘贴文本」或「精读 + 文笔拆解：」或「拆伏笔链：」。
+
+### 方式 2：纯手动（任何大模型都能用）
+
+直接把 [SKILL.md](SKILL.md) 作为 System Prompt 注入，效果完全等价；`scripts/` 里的工具按需手动运行。
+
+---
+
+## 二、快速上手：拿自带样例跑一遍
+
+仓库自带公版样例 [examples/sample_input.txt](examples/sample_input.txt)（《基督山伯爵》公版开头重述，约 1850 字），可用于验证完整管线：
+
+```bash
+# 在仓库根目录执行
+
+# Phase 1：切分 + 初始化 checkpoint
+python scripts/preprocess.py \
+  --input examples/sample_input.txt \
+  --doc-id sample_novel_zh \
+  --output-dir outputs/annotations/sample_novel_zh \
+  --max-tokens 800
+
+# Phase 2：逐片段批注（先只跑结构层，进入"手动模式"体验流程）
+python scripts/annotate_segment.py \
+  --segments outputs/annotations/sample_novel_zh/sample_novel_zh_segments.jsonl \
+  --doc-id sample_novel_zh \
+  --segment sample_novel_zh_seg_0000 \
+  --layers structure \
+  --output-dir outputs/annotations/sample_novel_zh
+
+# 校验
+python scripts/validate_output.py \
+  --jsonl outputs/annotations/sample_novel_zh/sample_novel_zh_structure.jsonl
+
+# 断点续跑进度
+python scripts/checkpoint.py status --doc-id sample_novel_zh
+```
+
+> ⚠️ `annotate_segment.py` 不内嵌任何大模型调用（**调度壳**）：不传 `--llm-cmd` 时进入手动模式——打印标准 Prompt 输入片段，你把 LLM 输出的 JSON 粘贴回来即可；传 `--llm-cmd "<命令>"` 时自动流水（命令接收 stdin JSON、返回 stdout JSON）。
+> ⚠️ **运行时产物严禁写入 `examples/`**（避免污染分发包），统一落在 `--output-dir`。
+
+---
+
+## 三、完整流水线（Phase 1–5）
+
+**设计原则**：每段每层独立落盘 → 支持断点续跑 → 跨段分析二阶段独立一次 → 各层合并。任何环境都能只跑其中一部分（纯 LLM 环境可跳过 scripts 手动批注）。
+
+### Phase 1：输入预处理（切分 + 初始化 checkpoint）
+
+```bash
+python scripts/preprocess.py \
+  --input path/to/novel.txt \
+  --doc-id my_novel_01 \
+  --output-dir outputs/annotations/my_novel_01 \
+  --max-tokens 2000
+```
+
+产出：`<doc_id>_segments.jsonl`（每行一个片段，含 `segment_id`/`chapter`/`section_type`/`text_span`/`context_prev`/`context_next`）+ `<doc_id>_checkpoint.json`。
+
+切分能力：
+- 章节边界识别：「第X章」「Chapter X」「「　　一」单独成行（兼容行首空白）」「序章/楔子/尾声/后记/Prologue/Epilogue」
+- frontmatter 显式输出为 `section_type="frontmatter"` 片段（不静默丢弃）
+- 无章节边界时退化为按段落 + 句子边界的长度智能切分，**全书不截断**
+- 坐标自校验断言：每个片段 `start_char/end_char` 切片与原文比对，漂移即抛异常
+- 全局 segment 计数器：`segment_id = {doc_id}_seg_{4位十进制}`（跨子切不回零，防 ID 碰撞）
+- 每段自动注入前后 200 字符上下文锚点；中文 token 估算 = `cn_char + en_words` 组合
+
+### Phase 2：逐片段批注（L1 结构 / L2 阐释 / L3 文笔 / P4 情感）
+
+```bash
+python scripts/annotate_segment.py \
+  --segments outputs/annotations/my_novel_01/my_novel_01_segments.jsonl \
+  --doc-id my_novel_01 \
+  --segment my_novel_01_seg_0001 \
+  --layers structure,interpretation,craft \
+  --output-dir outputs/annotations/my_novel_01
+```
+
+- `--layers` 组合：`structure` / `structure,interpretation` / `structure,interpretation,craft`，可加 `emotion`（P4，D19 情感分析）
+- **P4 情感层（v2.7）**：`--layers emotion` 时脚本自动读取该段 structure 的 D01/D04/D10 作为触发判定上下文并注入原文；情感词枚举 44 词见 [references/emotion-lexicon.md](references/emotion-lexicon.md)；`target/trigger/arc` 无明确值必须写 `null` + `null_reasons`，禁止编造
+- 断点续跑：`--resume`（默认开启）自动跳过 checkpoint 中已完成的 `(segment, layer)`
+- 每层产出自动跑 validate_output，通过才写 checkpoint + JSONL，失败最多重试 3 次
+
+### Phase 3：跨段分析（Layer 4，整体一次）
+
+跨段关系必须看到整本书的完整图景才能判断（伏笔-回收/呼应），不能混在逐段批注里：
+
+```bash
+python scripts/cross_segment.py \
+  --doc-id my_novel_01 \
+  --segments outputs/annotations/my_novel_01/my_novel_01_segments.jsonl \
+  --structure outputs/annotations/my_novel_01/my_novel_01_structure.jsonl \
+  --interpretation outputs/annotations/my_novel_01/my_novel_01_interpretation.jsonl \
+  --craft outputs/annotations/my_novel_01/my_novel_01_craft.jsonl \
+  --window-size 15 --overlap 3
+```
+
+产出 `cross_segment.jsonl`。每条 `cross_ref` 是**双引用**（`segment_id` 位置 ID + `anchor_text` 内容锚点）——将来切分版本变化导致序号漂移时，`anchor_text` 仍可在原文检索重定位，关系链不静默失效。
+实现为**启发式规则先行**（情绪强度突变=因果候选、视角切换=时序候选、D09 主题复用=呼应候选、D06 埋设-揭露=伏笔-回收候选），保证首次运行就产出可用列表；高精度 LLM 二分类可留给你自己的批量管线叠加。重跑默认 `--preserve-curated` 保留人工核验过的条目（规则条目带 `_source:'rule'` 标记）。
+
+### Phase 4：合并（嵌套文档）
+
+```bash
+python scripts/merge_layers.py \
+  --doc-id my_novel_01 \
+  --segments outputs/annotations/my_novel_01/my_novel_01_segments.jsonl
+```
+
+产出 `merged.jsonl`——每行一个 segment，把该段 L1/L2/L3 + 情感层 + 该段作为 source/target 的 cross_refs ID 嵌套在一起。优先从 segments 读 `text_span`（兼容 annotation 自带 `text_span` 的形态）。
+
+### Phase 5（可选）：人类可读报告
+
+```bash
+python scripts/render_report.py --doc-id my_novel_01 --format html
+python scripts/render_report.py --doc-id my_novel_01 --format md
+```
+
+产出 `report.html` / `report.md`（零第三方依赖，HTML 内联 CSS 直接浏览器打开）。含结构全景（章节/片段数、叙事功能分布、情绪强度折线、节奏条形）、主题/佳句 Top/修辞统计、跨段关系列表。
+
+### 校验（任意 Phase 后均可跑）
+
+```bash
+python scripts/validate_output.py --jsonl <某层>.jsonl
+# --layer-type 可选：auto(默认) / structure / interpretation / emotion / craft / cross_segment / merged
+```
+
+校验内容：
+- Schema 字段存在性 + 枚举合法性（枚举只认 `references/schema.md` 唯一真源）
+- 引文抽取 + 子串验证（D06 / D13–D17 引文必须是 `text_span.text` 子串）
+- span 位置断言（`0 ≤ start < end ≤ len`，切片相似度 ≥95%；85–95% warning，<85% error）
+- 置信度 ↔ status 自动对齐（overall ≥0.8 才允许 `confirmed`）
+- 必填维度置信度不可为 null；emotion 层额外校验 44 词枚举与情感弧端点
+
+### 脱敏导出（入库前必须跑）
+
+```bash
+python scripts/export_dataset.py \
+  --input outputs/annotations/my_novel_01/my_novel_01_merged.jsonl \
+  --output outputs/annotations/my_novel_01/my_novel_01_dataset.json
+```
+
+把所有可能携带原文的字段（`text_span.text`/引文/anchor_text 等）替换为 `【已脱敏】` + 长度/哈希，仅保留抽象结构化字段。**训练入库必须用脱敏版。**
+
+### 其他工具
+
+```bash
+python scripts/checkpoint.py status --doc-id my_novel_01            # 查询进度
+python scripts/checkpoint.py reset-layer --doc-id my_novel_01 --layer structure  # 重置某层
+python scripts/checkpoint.py reset-all --doc-id my_novel_01         # 整体重置
+python scripts/fill_spans.py ...   # 回补存量批注缺失的 span（历史产物迁移用）
+```
+
+---
+
+## 四、目录结构（v2.7）
+
+```
+close-reading-annotator/
+├── SKILL.md                         # [核心入口] Skill 本体（Prompt 包），任何平台都读它
+├── README.md                        # 本文件
+├── LICENSE                          # MIT
+│
+├── references/                      # Schema / 参考文档
+│   ├── schema.md                    # 【唯一真源】Schema 完整定义（枚举/字段约束/span 坐标系/引文校验/置信度/版本声明）
+│   ├── annotation-examples.md       # Few-shot 完整批注示例
+│   ├── emotion-anchors.md           # 情绪强度校准锚点（文学描写分档）
+│   ├── emotion-lexicon.md           # D19 情感词枚举表（44 词，含触发式判定指引）
+│   └── pace-anchors.md              # 叙事节奏校准锚点
+│
+├── templates/                       # 每层输出模板（均通过 validate_output.py 0 error 校验）
+│   ├── structure-output.json        # L1 结构层
+│   ├── interpretation-output.json   # L2 阐释层
+│   ├── emotion-output.json          # D19 情感层（v2.7 新增，P4）
+│   ├── craft-output.json            # L3 文笔层
+│   ├── cross-segment-output.json    # L4 跨段层
+│   └── merged-output.json           # Phase 4 合并嵌套文档
+│
+├── scripts/                         # 可选辅助脚本（零第三方依赖，Python 3.10+）
+│   ├── preprocess.py                # Phase 1：切分 + checkpoint 初始化
+│   ├── annotate_segment.py          # Phase 2：单片段调度壳（手动 / --llm-cmd 钩子）
+│   ├── cross_segment.py             # Phase 3：跨段启发式规则
+│   ├── merge_layers.py              # Phase 4：合并 + cross_refs 投影
+│   ├── render_report.py             # Phase 5：HTML/MD 报告
+│   ├── validate_output.py           # 统一校验器
+│   ├── checkpoint.py                # checkpoint 读写 + CLI（status/reset-layer/reset-all）
+│   ├── fill_spans.py                # 回补存量批注 span
+│   └── export_dataset.py            # 脱敏导出训练数据
+│
+├── docs/
+│   ├── architecture.md              # 架构说明（分层/数据流/模块职责/扩展边界）
+│   └── design-decisions.md          # 设计取舍记录
+│
+└── examples/
+    └── sample_input.txt             # 公版示例输入：《基督山伯爵》开头片段重述
+```
+
+---
+
+## 五、版本治理
+
+| 声明点 | 值 |
+|--------|-----|
+| `SKILL.md` frontmatter `version` | `2.7.0` |
+| `references/schema.md` Schema 版本 | `2.7.0` |
+| 批注 JSON `schema_version` 字段 | `2.7.0`（L1–L3 向后兼容 `2.6.0`） |
+| `_metadata.skill_version` | `2.7.0` |
+
+修改任何枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**，最后更新版本号。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
+
+主要里程碑：
+- **v2.7.0**：新增 D19 情感层（P4 独立产物 `emotion.jsonl`）、`emotion-lexicon.md`、`emotion-output.json` 模板、P4 触发式流程
+- **v2.6.0**：真实全本运行补丁（Windows GBK 编码/checkpoint 回写/报告增强）+ D04 `polarity` 必填 + `--preserve-curated` + `fill_spans.py`
+- **v2.5.0**：架构大升级 3 层 → 4 层（每层独立 JSONL、二阶段跨段、merged、7 项 P0 修复）
+- **v2.0–v2.3**：单 JSONL 时代（已废弃，数据需迁移）
+
+---
+
+## 六、分级策略（成本与质量权衡）
+
+| 档级 | 跑哪些层 | 适用场景 |
+|:----:|:---------|:---------|
+| 轻量档 | Phase 1 + 2（仅 structure）+ 4 | 大规模批量、先扫描全貌（约 80% 文档） |
+| 标准档 | Phase 1 + 2（structure + interpretation）+ 3 + 4 | 普通精读 / 拆解 |
+| 深度档 | Phase 1–5 全跑（含 craft + cross_segment + report） | 深度研究 / 训练样本核心池 |
+
+> 【成本纪律】请勿把全量深度维度跑应用到百万级文本——20% 深度档提供 80% 价值，80% 轻量档扩充基数。
+
+---
+
+## 七、环境要求
+
+| 组件 | 必需？ | 要求 |
+|------|:------:|------|
+| SKILL.md（Prompt 包） | ✅ | 零依赖，纯 Markdown |
+| scripts/ | ❌ 可选 | Python 3.10+，仅标准库，无需任何第三方包 |
+| IDE Skill 生态 | ❌ 可选 | TRAE / Cursor / Claude Code 任一；纯手动模式不需要 |
+
+刻意保持零第三方 Python 依赖——任何"裸"环境都能直接跑。若将来需要 tokenizer/模型调用等重依赖，会单独放 `scripts/optional/`，不影响现有脚本。
+
+---
+
+## 八、版权合规（重要）
+
+1. **输入**：只批注公版作品、明确授权作品、或你自己的文本。对在版权期内的商业作品做批量批注仅供个人研究，不要分发原文片段。
+2. **输出**：`text_span.text` 会携带原文片段——公开发布批注产物前请谨慎；训练入库前必须跑 `export_dataset.py` 脱敏（「分析即销毁」：只留抽象结构化字段）。
+
+---
+
+## 九、常见问题
+
+### Q1：Skill 为什么不自动调 scripts/？
+A1：刻意设计。SKILL.md 本体是**纯 Prompt 包**——任何能读 Markdown 的平台都能用，不捆绑任何脚本/API。在 Agentic 环境（TRAE/Cursor/Claude Code）下 AI 会按 Phase 1–5 工作流自动调用；纯 LLM 聊天里按第三节命令手动启动。
+
+### Q2：我只想在 500 字片段上做一次批注，也要跑 5-Phase 吗？
+A2：不用。5-Phase 是长文本/批处理的最完整走法。小片段直接对 AI 说「精读这段：粘贴文本」，AI 按 `templates/` 输出对齐即可。
+
+### Q3：validate_output.py 报「引文不在原文中」但我觉得是对的？
+A3：校验器先做空白归一化（`" ".join(s.split())`）再判子串。常见原因：(a) 引文 copy 回写时多了/少了前后标点；(b) 换行合并多了字。若为标点差异，相似度 ≥95% 会降级为 warning——把 `span` 边界补齐精确即可。
+
+### Q4：checkpoint 显示某阶段完成但我想重跑？
+A4：`reset-layer` 重置 structure 会连带清掉依赖它的 cross_segment / merged / report；只想重置后者可直接把 `{doc_id}_checkpoint.json` 中对应字段（`cross_segment_completed` / `merged_completed` / `render_report_completed`）改回 `false`。
+
+### Q5：老版本（v2.3 单 JSONL）产物能直接进新管线吗？
+A5：不能，需要按新 Schema 迁移（结构层字段大改，需逐字段映射并回补 span）。建议对原文重新走一遍 v2.7 管线，迁移成本通常更低。
+
+---
+
+## 十、参考文档索引
+
+| 文档 | 什么时候读 |
+|------|-----------|
+| [references/schema.md](references/schema.md) | 改枚举/校验/字段前必读（唯一真源） |
+| [references/annotation-examples.md](references/annotation-examples.md) | 开始批注前看 1–2 条找格式感觉 |
+| [references/emotion-anchors.md](references/emotion-anchors.md) | 情绪强度判断犹豫时 |
+| [references/emotion-lexicon.md](references/emotion-lexicon.md) | D19 情感层标注前（44 词枚举） |
+| [references/pace-anchors.md](references/pace-anchors.md) | 节奏判断犹豫时 |
+| [docs/architecture.md](docs/architecture.md) | 想理解分层/数据流/扩展边界 |
+| [docs/design-decisions.md](docs/design-decisions.md) | 想改架构前先翻历史决策 |
+
+---
+
+## License
+
+MIT，见 [LICENSE](LICENSE)。

@@ -1,0 +1,66 @@
+{
+  "_comment": "结构层（Layer 1）输出模板（v2.5 起每层独立 JSONL）。请勿输出 _comment。请把下文所有占位字段替换为真实值，确保枚举值对齐 references/schema.md。",
+  "schema_version": "2.7.0",
+  "annotation_id": "<doc_id>_seg_<NNNN>_structure_ann_0",
+  "document_id": "<doc_id>",
+  "segment_id": "<doc_id>_seg_<NNNN>",
+  "chapter": "第一章",
+  "section_type": "body",
+  "text_span": {
+    "hash": "<sha256 标准化后原文截断16位>",
+    "start_char": 0,
+    "end_char": 70,
+    "text": "一八二五年二月二十四日下午，马赛港外的海面被初春的阳光晒得像一块融化的金箔。法老号三桅帆船正缓缓驶入港湾，它的白帆布被地中海的风撑得鼓鼓的。"
+  },
+  "layers": {
+    "structure": {
+      "D01": "背景铺垫",
+      "D04": {
+        "core": "平静",
+        "modifier": null,
+        "intensity": 3,
+        "polarity": "neutral"
+      },
+      "D05": 2,
+      "D07": {
+        "type": "第三人称全知",
+        "is_switch_point": false,
+        "switch_from": null,
+        "switch_to": null
+      },
+      "D08": {
+        "time": "一八二五年二月二十四日下午",
+        "space": "马赛港外"
+      },
+      "D10": null,
+      "D11": [
+        "环境描写"
+      ]
+    }
+  },
+  "confidence": {
+    "overall": 0.88,
+    "confidence_method": "model_self_report",
+    "per_dimension": {
+      "D01": 0.9,
+      "D04": 0.85,
+      "D05": 0.9,
+      "D07": 0.95,
+      "D08": 0.92,
+      "D10": 0.95,
+      "D11": 0.93
+    }
+  },
+  "null_reasons": {
+    "D10": "片段中无对话"
+  },
+  "alternatives": [],
+  "status": "confirmed",
+  "_metadata": {
+    "skill_version": "2.7.0",
+    "model": "deepseek-r1",
+    "generated_at": "2026-09-05T10:30:00+08:00",
+    "layer": "structure",
+    "annotation_pass": "P1+P2"
+  }
+}

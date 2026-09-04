@@ -1,0 +1,54 @@
+{
+  "_comment": "阐释层（Layer 2）输出模板。v2.5 起每层独立 JSONL。D06.content 中引号引的引文必须是 text_span.text 的子串。请勿输出 _comment。",
+  "schema_version": "2.7.0",
+  "annotation_id": "<doc_id>_seg_<NNNN>_interpretation_ann_0",
+  "document_id": "<doc_id>",
+  "segment_id": "<doc_id>_seg_<NNNN>",
+  "chapter": "第一章",
+  "section_type": "body",
+  "text_span": {
+    "hash": "<sha256 截断16位>",
+    "start_char": 0,
+    "end_char": 37,
+    "text": "他犹豫了一下，压低了声音，「还有一封给诺瓦蒂埃先生的私信，要我亲手转交。」"
+  },
+  "layers": {
+    "interpretation": {
+      "D06_information_control": {
+        "type": "隐藏",
+        "content": "读者被「还有一封给诺瓦蒂埃先生的私信，要我亲手转交。」这句话钉住：作者向读者揭示了这封信的存在，但对在场的莫雷尔以及后续情节的真实用途完全隐藏。这里的压低声音动作进一步坐实了信息不对称。"
+      },
+      "D09": [
+        "信件秘密",
+        "权力交接",
+        "隐瞒"
+      ],
+      "narrator_reliability": "可靠"
+    }
+  },
+  "confidence": {
+    "overall": 0.76,
+    "confidence_method": "model_self_report",
+    "per_dimension": {
+      "D06": 0.7,
+      "D09": 0.75
+    }
+  },
+  "null_reasons": {},
+  "alternatives": [
+    {
+      "layer": "interpretation",
+      "dimension": "D06",
+      "value": "{\"type\":\"误导\",\"content\":\"...\"}",
+      "reason": "也可看作叙述者对读者的轻微误导——看似只是转交手续，实际上是全书阴谋的第一个关键点。"
+    }
+  ],
+  "status": "tentative",
+  "_metadata": {
+    "skill_version": "2.7.0",
+    "model": "deepseek-r1",
+    "generated_at": "2026-09-05T10:35:00+08:00",
+    "layer": "interpretation",
+    "annotation_pass": "P1+P2+P3"
+  }
+}

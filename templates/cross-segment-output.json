@@ -1,0 +1,32 @@
+{
+  "_comment": "跨段层（Layer 4 二阶段）输出。每条 cross_ref 必须是双引用：segment_id（位置） + anchor_text（内容锚点），防序号漂移。规则版条目带 _source:'rule'（人工/LLM 核验条目不带），cross_segment.py 重跑默认 --preserve-curated 保留核验条目。请勿输出 _comment。",
+  "schema_version": "2.7.0",
+  "doc_id": "<doc_id>",
+  "cross_refs": [
+    {
+      "ref_id": "cf_0001",
+      "relation_type": "伏笔-回收",
+      "source": {
+        "segment_id": "<doc_id>_seg_0001",
+        "chapter": "一",
+        "anchor_text": "还有一封给诺瓦蒂埃先生的私信，要我亲手转交。",
+        "span": { "start": 11, "end": 33 }
+      },
+      "target": {
+        "segment_id": "<doc_id>_seg_0027",
+        "chapter": "十",
+        "anchor_text": "诺瓦蒂埃先生拆开那封信时，脸色一点点沉了下去。",
+        "span": null
+      },
+      "confidence": 0.72,
+      "note": "前段埋下「给诺瓦蒂埃的私信」这一伏笔，后段诺瓦蒂埃拆信是伏笔回收，前后同指一件事。"
+    }
+  ],
+  "_metadata": {
+    "skill_version": "2.7.0",
+    "generated_at": "2026-09-05T11:00:00+08:00",
+    "window_size": 15,
+    "overlap": 3,
+    "method": "rule_based_heuristic_v2_6"
+  }
+}

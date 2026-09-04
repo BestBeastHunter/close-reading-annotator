@@ -1,0 +1,120 @@
+{
+  "_comment": "文笔层（Layer 3）输出模板。所有条目 text 必须是原文子串，span 必须是段内相对偏移（见 schema.md §3.2）。请勿输出 _comment。",
+  "schema_version": "2.7.0",
+  "annotation_id": "<doc_id>_seg_<NNNN>_craft_ann_0",
+  "document_id": "<doc_id>",
+  "segment_id": "<doc_id>_seg_<NNNN>",
+  "chapter": "第一章",
+  "section_type": "body",
+  "text_span": {
+    "hash": "<sha256>",
+    "start_char": 0,
+    "end_char": 74,
+    "text": "马赛港外的海面被初春的阳光晒得像一块融化的金箔。法老号三桅帆船正缓缓驶入港湾，它的白帆布被地中海的风撑得鼓鼓的，远远看去像一只巨大的海鸥落在水面上。"
+  },
+  "craft": {
+    "D13_golden_lines": [
+      {
+        "text": "海面被初春的阳光晒得像一块融化的金箔",
+        "span": {
+          "start": 5,
+          "end": 23
+        },
+        "reason": "比喻新颖：把海面+阳光的静态场景转化为「融化金箔」这个有温度和质感的意象，开篇一下把读者的感官钉在马赛港的初春午后。",
+        "quality_score": 5
+      },
+      {
+        "text": "远远看去像一只巨大的海鸥落在水面上",
+        "span": {
+          "start": 56,
+          "end": 73
+        },
+        "reason": "拟人+比喻叠用：把白船帆比作海鸥「落在水面」，化静为动，给大船入港添了一点温柔的生机。",
+        "quality_score": 4
+      }
+    ],
+    "D14_rhetoric": [
+      {
+        "text": "像一块融化的金箔",
+        "span": {
+          "start": 15,
+          "end": 23
+        },
+        "type": "比喻",
+        "detail": "本体：海面被阳光照亮的光感；喻体：融化的金箔。共通点：金色、光泽流动、有温度。"
+      }
+    ],
+    "D15_imagery": [
+      {
+        "text": "金箔",
+        "span": {
+          "start": 21,
+          "end": 23
+        },
+        "type": "色彩意象",
+        "cluster": "金色-财富-阳光"
+      },
+      {
+        "text": "海鸥",
+        "span": {
+          "start": 66,
+          "end": 68
+        },
+        "type": "自然意象",
+        "cluster": "海港-自由-归航"
+      }
+    ],
+    "D16_diction": [
+      {
+        "text": "撑得鼓鼓的",
+        "span": {
+          "start": 50,
+          "end": 55
+        },
+        "pos": "形容词",
+        "reason": "「鼓鼓的」是口语词，用在这里形容白帆布——没有写「鼓胀」这种书面词，反而让一句风景描写有了孩童观察时的细腻亲切感。",
+        "alternatives": [
+          "鼓胀",
+          "胀满",
+          "饱满"
+        ]
+      }
+    ],
+    "D17_syntax": [
+      {
+        "text": "马赛港外的海面被初春的阳光晒得像一块融化的金箔。法老号三桅帆船正缓缓驶入港湾，它的白帆布被地中海的风撑得鼓鼓的，远远看去像一只巨大的海鸥落在水面上。",
+        "span": {
+          "start": 0,
+          "end": 74
+        },
+        "type": "长短交替",
+        "effect": "短句定场景（金箔）+ 长句推镜头（法老号驶入 + 海鸥喻），节奏跟镜头慢慢推近的速度一致，开篇读起来不催。"
+      }
+    ],
+    "D18_character_voice": []
+  },
+  "confidence": {
+    "overall": 0.82,
+    "confidence_method": "model_self_report",
+    "per_dimension": {
+      "D13": 0.85,
+      "D14": 0.85,
+      "D15": 0.8,
+      "D16": 0.8,
+      "D17": 0.82,
+      "D18": 0.7
+    }
+  },
+  "null_reasons": {
+    "D18": "本段无对话，无法抽取角色口癖"
+  },
+  "alternatives": [],
+  "status": "confirmed",
+  "_metadata": {
+    "skill_version": "2.7.0",
+    "model": "deepseek-r1",
+    "generated_at": "2026-09-05T10:40:00+08:00",
+    "layer": "craft",
+    "annotation_pass": "P1+P2+P3"
+  }
+}

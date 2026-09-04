@@ -1,0 +1,41 @@
+{
+  "_comment": "合并后嵌套文档（Phase 4 产物），以 segment 为轴心。每行一个 segment。",
+  "segment_id": "<doc_id>_seg_<NNNN>",
+  "chapter": "string|null",
+  "chapter_index": 0,
+  "section_type": "frontmatter|body|epilogue",
+  "text_span": {
+    "hash": "<sha256>",
+    "start_char": 0,
+    "end_char": 0,
+    "text": "<原文片段>"
+  },
+  "approx_tokens": 0,
+  "structure": {
+    "_comment": "该段 layers.structure 原样：D01/D04/D05/D07/D08/D10/D11",
+    "D01": "背景铺垫",
+    "D04": { "core": "平静", "modifier": null, "intensity": 3, "polarity": "neutral" },
+    "D05": 3,
+    "D07": { "type": "第三人称有限", "is_switch_point": false, "switch_from": null, "switch_to": null },
+    "D08": { "time": null, "space": null },
+    "D10": null,
+    "D11": ["心理描写"]
+  },
+  "interpretation": {
+    "_comment": "或 null（未跑 interpretation）。含 D06_information_control / D09 / narrator_reliability",
+    "D06_information_control": null,
+    "D09": ["主题1", "主题2", "主题3"],
+    "narrator_reliability": "可靠"
+  },
+  "craft": {
+    "_comment": "或 null（未跑 craft）。含 D13_golden_lines / D14_rhetoric / D15_imagery / D16_diction / D17_syntax / D18_character_voice",
+    "D13_golden_lines": [],
+    "D14_rhetoric": [],
+    "D15_imagery": [],
+    "D16_diction": [],
+    "D17_syntax": [],
+    "D18_character_voice": []
+  },
+  "cross_refs_sources": ["cf_0001", "cf_0002"],
+  "cross_refs_targets": ["cf_0003"]
+}
