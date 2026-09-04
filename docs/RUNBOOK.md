@@ -1,0 +1,261 @@
+# RUNBOOK — close-reading-annotator 最小操作契约
+
+> **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
+> 完整 schema / 枚举 / 设计决策见 `references/schema.md`、`SKILL.md`、`docs/design-decisions.md`。
+> 版本：v2.7.0（含决策 18 工程化修复轮）
+
+---
+
+## 0. 5 分钟跑通全流程（冒烟测试）
+
+```bash
+# 假设 skill 目录为 ./close-reading-annotator，输出目录为 ./out
+SKILL=./close-reading-annotator
+OUT=./out
+DOC=my_book
+
+# Phase 1：切分
+python $SKILL/scripts/preprocess.py --input book.txt --doc-id $DOC --output-dir $OUT
+
+# Phase 2：全自动批量批注（用官方 mock wrapper 跑通链路，structure 层）
+python $SKILL/scripts/annotate_segment.py \
+    --segments $OUT/${DOC}_segments.jsonl \
+    --doc-id $DOC --output-dir $OUT \
+    --checkpoint $OUT/${DOC}_checkpoint.json \
+    --layers structure --all-pending \
+    --llm-cmd "python $SKILL/examples/llm_wrapper.py --mock"
+
+# Phase 3-5：跨段 → 合并 → 报告
+python $SKILL/scripts/cross_segment.py --doc-id $DOC --segments $OUT/${DOC}_segments.jsonl \
+    --structure $OUT/${DOC}_structure.jsonl --output-dir $OUT
+python $SKILL/scripts/merge_layers.py --doc-id $DOC --segments $OUT/${DOC}_segments.jsonl --output-dir $OUT
+python $SKILL/scripts/render_report.py --doc-id $DOC --output-dir $OUT --format md
+```
+
+**验证**：`python $SKILL/scripts/checkpoint.py status --doc-id $DOC --dir $OUT` 全部 100%。
+
+---
+
+## 1. 三种批注模式（Phase 2 核心选择）
+
+| 模式 | 命令 | 适用场景 | 交互性 |
+|------|------|---------|--------|
+| **手动粘贴** | `--segment X --layers structure`（无 --llm-cmd） | 人在终端操作，复制 prompt 给 LLM 再粘贴 JSON 回来 | 交互式（需 Ctrl+Z+回车 / Ctrl+D） |
+| **非交互注入** | `--input-json 批注行.jsonl` | Agent 已自备批注 JSON（自己生成或从别处导入），只需要校验+落盘+checkpoint | 非交互，一行命令 |
+| **全自动批量** | `--all-pending --llm-cmd "python wrapper.py"` | 接了真实 LLM wrapper，一次性跑完所有未完成段 | 非交互，批量 |
+
+### 模式选择决策树
+
+```
+有外部 LLM API 可用？
+├─ 是 → 写 wrapper（参考 examples/llm_wrapper.py）→ --all-pending --llm-cmd
+└─ 否 → Agent 自己生成批注 JSON？
+        ├─ 是 → --input-json 注入
+        └─ 否 → 手动模式（人 + 另开 LLM 对话窗口）
+```
+
+---
+
+## 2. CLI 速查表
+
+### 2.1 preprocess.py（Phase 1）
+
+```bash
+python scripts/preprocess.py --input <原文.txt> --doc-id <doc_id> --output-dir <out>
+```
+- 产出：`{doc_id}_segments.jsonl` + `{doc_id}_checkpoint.json`
+- 每段 ≈2000 token，前后 200 字符上下文锚点（`--overlap-chars` 可改）
+- 无章节边界时全书不截断，打 `pollution_warning`
+
+### 2.2 annotate_segment.py（Phase 2 核心）
+
+```bash
+# 通用参数
+--segments <segments.jsonl>    # 必填
+--doc-id <doc_id>               # 必填
+--output-dir <out>              # 层 JSONL 输出目录
+--checkpoint <ckpt.json>        # ⚠️ 强烈建议显式指定，否则默认 cwd（见坑点#1）
+--layers structure,interpretation,craft   # 默认三层；emotion 需显式加
+--force                         # 忽略 checkpoint 强制重跑（幂等 upsert，不产生重复行）
+
+# 三种模式三选一（见 §1）
+--segment <seg_id>              # 单段模式（手动或 --llm-cmd）
+--input-json <file.jsonl>       # 非交互注入（支持单 JSON / JSON 数组 / JSONL）
+--all-pending                    # 批量模式（需配合 --llm-cmd 或 --input-json）
+--llm-cmd "python wrapper.py"   # 外部 LLM 命令（stdin 收 JSON，stdout 返 JSON）
+```
+
+**自动行为**：
+- 校验失败 → craft 层 span 自动回算修正并重试 ≤3 次（决策 18 兑现）
+- 落盘 → 幂等 upsert（同 segment 同层旧行被替换，不重复）
+- checkpoint → 自动 `mark_layer_completed`
+
+### 2.3 checkpoint.py（状态查询 / 重置）
+
+```bash
+python scripts/checkpoint.py status --doc-id <doc_id> --dir <out>     # 查看进度
+python scripts/checkpoint.py reset-layer --doc-id <doc_id> --layer structure --dir <out>  # 重置某层
+```
+
+### 2.4 select_segments.py（段采样分层，决策 18 新增）
+
+```bash
+python scripts/select_segments.py --structure <out>/{doc}_structure.jsonl --output <out>/{doc}_segment_plan.json
+# 产出 {doc}_segment_plan.json（tiers: deep/light/skip + per_segment 理由）
+```
+- 默认规则：D01 ∈ {激励事件,上升行动,高潮,转折} 或 D04.intensity≥6 或 D07.is_switch_point → **deep**
+- D01 ∈ {背景铺垫,过渡} → **skip**；其余 → **light**
+- 配合 `run_pipeline.py --plan`：structure 全量跑，深度层只跑 deep 段
+
+### 2.5 run_pipeline.py（Phase 1-5 一体化，决策 18 新增）
+
+```bash
+python scripts/run_pipeline.py --input <原文.txt> --doc-id <doc_id> --output-dir <out> \
+    --plan <out>/{doc}_segment_plan.json --llm-cmd "python wrapper.py" --report-format md
+# --phases 3,4,5   # 只跑跨段→合并→报告（批注已就绪时）
+# 断点续跑是默认行为（读 checkpoint 跳过已完成阶段/片段）；--force 强制重跑
+```
+
+### 2.6 其他脚本
+
+| 脚本 | 用途 |
+|------|------|
+| `cross_segment.py` | Phase 3：Layer 4 跨段关系（启发式规则，`--preserve-curated` 默认开） |
+| `merge_layers.py` | Phase 4：同段 L1/L2/L2.5/L3 + cross_refs 投影嵌套 |
+| `render_report.py` | Phase 5：MD / HTML 报告（零第三方依赖，内联样式） |
+| `validate_output.py` | 单文件校验（`--json <file> --layer-type structure`） |
+| `fill_spans.py` | 存量 craft 产物 span 回补（决策 18 后生成期已自动修复，此脚本仅用于旧产物迁移） |
+| `export_dataset.py` | 训练数据导出脱敏（版权合规） |
+| `span_locator.py` | 公共模块：`text.find` 定位 + 相似度回算（annotate_segment / fill_spans 共用） |
+
+---
+
+## 3. 校验错误快速修复表
+
+> annotate_segment 自动执行校验；以下是常见错误及修复方法。
+
+| 错误信息 | 原因 | 修复 |
+|---------|------|------|
+| `缺失必填顶层字段：annotation_id` | 注入的 JSON 缺字段 | 从 `templates/<layer>-output.json` 复制模板填充 |
+| `D04.core 不在 20 词枚举内` | 自造了情绪词 | 只能从：平静/压抑/焦虑/悲伤/愤怒/恐惧/喜悦/希望/绝望/孤独/信任/背叛/屈辱/尊严/嫉妒/贪婪/复仇/宽恕/悬疑/释然 中选 |
+| `D01 不在枚举内` | 自造了叙事功能词 | 只能从：背景铺垫/激励事件/上升行动/转折/高潮/下降行动/结局/过渡/复合功能/无法判断 中选 |
+| `引文不是 text_span.text 子串` | craft/interpretation 的引文含原文注释标记或被改写 | 用 `text.find(引文)` 精确定位；去掉①②等注释标记 |
+| `span 切片相似度 <85%` | span 位置漂移 | craft 层会自动回算重试；仍失败则手动用 `text.find` 修正 |
+| `span start >= end` 或 `span 越界` | span 坐标非法 | 确保 `0 ≤ start < end ≤ len(text)` |
+| `status=confirmed 但 overall<0.8` | 置信度与状态不一致 | overall≥0.8 才能 confirmed；<0.8 改 tentative |
+| `D19.emotion 不在 44 词白名单` | 情感词自造 | 查 `references/emotion-lexicon.md`，选最接近词 + expression.note 说明 |
+| `key_phrases 不是原文子串` | D19 表达短语不在原文里 | 每项必须是 `text_span.text` 的精确子串 |
+| `schema_version 不在允许集合` | 版本号错 | 当前允许 2.6.0 / 2.7.0 |
+
+---
+
+## 4. 常见坑点（踩过的坑）
+
+### 坑点 #1：checkpoint 路径默认 cwd，不是 output-dir
+
+**现象**：annotate_segment 显示"落盘成功"，但 `checkpoint.py status` 显示 0%。
+
+**原因**：不传 `--checkpoint` 时，annotate_segment 从 **cwd** 找 `{doc_id}_checkpoint.json`，而 preprocess 把 checkpoint 写到了 **output-dir**。两个目录不一致 → annotate 在 cwd 新建了一个空 checkpoint。
+
+**修复**：**始终显式传 `--checkpoint <output-dir>/{doc_id}_checkpoint.json`**，或从 output-dir 目录运行命令。
+
+### 坑点 #2：Windows 控制台 GBK 编码崩溃
+
+**现象**：脚本打印中文时 `UnicodeEncodeError`。
+
+**原因**：Windows 控制台默认 GBK，Python print 中文时编码失败。
+
+**修复**：所有脚本已在 v2.5.1/v2.7.0 修复（`sys.stdout.reconfigure(encoding='utf-8')` + 子进程显式 UTF-8）。如果你写自己的 wrapper，记得也加这行。
+
+### 坑点 #3：手动模式多层时第二次 EOF 退出
+
+**现象**：手动模式跑 `--layers structure,interpretation`，第一层粘贴完 JSON 后，第二层直接报"没粘贴 JSON"退出。
+
+**原因**：手动模式每层各读一次 stdin，第一次读完后 stdin 已到 EOF。
+
+**修复**：手动模式**一次只跑一层**。多层分多次调用，或改用 `--input-json` / `--llm-cmd` 非交互模式。
+
+### 坑点 #4：PowerShell 吞子进程 stdin
+
+**现象**：`--llm-cmd` 外部 LLM 收不到输入，报"无 stdin 输入"。
+
+**原因**：`shell=True` 在 PowerShell 环境下会把 JSON 当命令解析，吞掉 stdin。
+
+**修复**：annotate_segment 已在 v2.7.0 修复（`shlex.split(posix=True)` + `shell=False`）。wrapper 路径含空格时用双引号包裹，建议用正斜杠。
+
+### 坑点 #5：craft 条目 span 是高频失误点
+
+**现象**：LLM 产出的 craft 批注 span 位置经常漂移（数错字符偏移）。
+
+**修复**：决策 18 后 annotate_segment 校验失败时**自动用 `text.find` 回算 span 并重试 ≤3 次**。存量旧产物用 `fill_spans.py` 回补。Agent 自写批注时建议直接用 `text.find(引文)` 计算 span，不要手数。
+
+### 坑点 #6：emotion 层不能和其他层混跑
+
+**现象**：`--layers structure,emotion` 时 emotion 层找不到 structure 触发上下文。
+
+**原因**：emotion 层需要读同段 structure.jsonl 的 D01/D04/D10 做 P4 触发判定。如果 structure 还没落盘，触发判定会失败。
+
+**修复**：先跑完 structure 全量，再单独跑 emotion 层（`--layers emotion`）。
+
+---
+
+## 5. 断点续跑指南
+
+1. **查询进度**：`python scripts/checkpoint.py status --doc-id <doc> --dir <out>`
+2. **续跑**：直接重跑同样的命令，annotate_segment 会自动跳过已完成的 (segment, layer)
+3. **强制重跑某段**：加 `--force`（幂等 upsert，不产生重复行）
+4. **重置某层全部**：`python scripts/checkpoint.py reset-layer --doc-id <doc> --layer craft --dir <out>`
+5. **批量失败不阻塞**：`--all-pending` 模式下单条失败记入 failed 清单，其余继续；失败的段下次重跑会自动重试
+
+---
+
+## 6. 产物文件清单（output-dir 内）
+
+| 文件 | 产生阶段 | 说明 |
+|------|---------|------|
+| `{doc}_segments.jsonl` | Phase 1 | 切分后的片段（含 text_span / context_prev / context_next） |
+| `{doc}_checkpoint.json` | Phase 1 | 进度状态机（各层完成情况 / cross_segment / merged / report 标记） |
+| `{doc}_structure.jsonl` | Phase 2 | L1 结构层批注 |
+| `{doc}_interpretation.jsonl` | Phase 2 | L2 阐释层批注 |
+| `{doc}_craft.jsonl` | Phase 2 | L3 文笔层批注 |
+| `{doc}_emotion.jsonl` | Phase 2.5 | L2.5 情感层批注（P4 触发式） |
+| `{doc}_cross_segment.jsonl` | Phase 3 | L4 跨段关系 |
+| `{doc}_merged.jsonl` | Phase 4 | 四层合并 + cross_refs 投影 |
+| `{doc}_report.md` / `.html` | Phase 5 | 最终报告 |
+| `{doc}_segment_plan.json` | select_segments | 段采样分层计划（deep/light/skip） |
+
+---
+
+## 7. 官方 LLM Wrapper 接入指南
+
+`examples/llm_wrapper.py` 是 `--llm-cmd` 协议的官方参考模板（零第三方依赖）。
+
+### 协议
+
+```
+stdin  ← {"segment": {...}, "request_layers": ["structure"], "schema_version": "2.7.0",
+           "structure_trigger_block": {...}|null}   # 仅 emotion 层注入
+stdout → 一行动 JSON（批注行对象，见 templates/<layer>-output.json）
+退出码 0 = 成功；非 0 = 失败（annotate 记入 failed，不写 checkpoint）
+```
+
+### 步骤
+
+1. 复制 `examples/llm_wrapper.py` 到你的工作目录
+2. 编辑 `_call_model(payload)` 函数：
+   - 从 `payload["segment"]["text_span"]["text"]` 取原文
+   - 把 SKILL.md / references/schema.md / 对应模板拼进 system prompt
+   - 调你的 API（OpenAI 兼容 `/api/chat` 可直接用 stdlib `urllib`）
+   - 解析返回 JSON 并 return
+3. 运行：`--llm-cmd "python your_wrapper.py"`
+
+### Mock 冒烟（不调 API）
+
+```bash
+python examples/llm_wrapper.py --mock
+# 从 templates/structure-output.json 生成合法 structure 行，仅用于跑通链路
+```
+
+---
+
+*RUNBOOK v2.7 — "5 分钟跑通，报错查表，踩坑看 §4。"*

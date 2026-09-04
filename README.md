@@ -1,9 +1,9 @@
-# 精读批注 Skill v2.7
+# 精读批注 Skill v2.8
 
 > 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）。
 > 适合：小说精读、故事拆解、叙事分析、文笔拆解、结构化语料构建。
 > 本仓库即**完整可运行的 Skill 包**——放到 TRAE / Cursor / Claude Code 的 skills 目录即可使用，也支持纯手动模式（把 `SKILL.md` 注入任意大模型）。
-> **版本**：skill_version = `2.7.0` / schema_version = `2.7.0`。frontmatter 版本、`references/schema.md` 声明、批注 JSON 的 `schema_version`、`_metadata.skill_version` 四者严格一致（L1–L3 产物向后兼容 `2.6.0`）。
+> **版本**：skill_version = `2.8.0` / schema_version = `2.8.0`。frontmatter 版本、`references/schema.md` 声明、批注 JSON 的 `schema_version`、`_metadata.skill_version` 四者严格一致（L1–L3 产物向后兼容 `2.5.0`/`2.6.0`/`2.7.0`）。
 
 ---
 
@@ -175,7 +175,7 @@ python scripts/fill_spans.py ...   # 回补存量批注缺失的 span（历史�
 
 ---
 
-## 四、目录结构（v2.7）
+## 四、目录结构（v2.8）
 
 ```
 close-reading-annotator/
@@ -193,28 +193,34 @@ close-reading-annotator/
 ├── templates/                       # 每层输出模板（均通过 validate_output.py 0 error 校验）
 │   ├── structure-output.json        # L1 结构层
 │   ├── interpretation-output.json   # L2 阐释层
-│   ├── emotion-output.json          # D19 情感层（v2.7 新增，P4）
-│   ├── craft-output.json            # L3 文笔层
+│   ├── emotion-output.json          # D19 情感层（v2.7 新增，P4；v2.8 格式统一）
+│   ├── craft-output.json            # L3 文笔层（v2.8 格式统一 layers.craft）
 │   ├── cross-segment-output.json    # L4 跨段层
 │   └── merged-output.json           # Phase 4 合并嵌套文档
 │
 ├── scripts/                         # 可选辅助脚本（零第三方依赖，Python 3.10+）
 │   ├── preprocess.py                # Phase 1：切分 + checkpoint 初始化
-│   ├── annotate_segment.py          # Phase 2：单片段调度壳（手动 / --llm-cmd 钩子）
+│   ├── annotate_segment.py          # Phase 2：单片段调度壳（手动 / --llm-cmd / --input-json / --all-pending）
 │   ├── cross_segment.py             # Phase 3：跨段启发式规则
 │   ├── merge_layers.py              # Phase 4：合并 + cross_refs 投影
 │   ├── render_report.py             # Phase 5：HTML/MD 报告
 │   ├── validate_output.py           # 统一校验器
 │   ├── checkpoint.py                # checkpoint 读写 + CLI（status/reset-layer/reset-all）
 │   ├── fill_spans.py                # 回补存量批注 span
-│   └── export_dataset.py            # 脱敏导出训练数据
+│   ├── export_dataset.py            # 脱敏导出训练数据
+│   ├── span_locator.py              # v2.7 新增：span 定位公共模块（fill_spans/annotate 复用）
+│   ├── select_segments.py           # v2.7 新增：段采样分层（deep/light/skip 分档）
+│   ├── run_pipeline.py              # v2.7 新增：Phase 1–5 一体化驱动 + 断点续跑 + --plan
+│   └── audit_v27.py                 # v2.8 新增：机械审计脚本（引文/常量/坐标/ID 四项校验）
 │
 ├── docs/
 │   ├── architecture.md              # 架构说明（分层/数据流/模块职责/扩展边界）
-│   └── design-decisions.md          # 设计取舍记录
+│   ├── design-decisions.md          # 设计取舍记录
+│   └── RUNBOOK.md                   # v2.7 新增：Agent 最小操作契约（CLI 速查 + 校验错误修复表）
 │
 └── examples/
-    └── sample_input.txt             # 公版示例输入：《基督山伯爵》开头片段重述
+    ├── sample_input.txt             # 公版示例输入：《基督山伯爵》开头片段重述
+    └── llm_wrapper.py               # v2.7 新增：官方 LLM 适配模板（零依赖，--mock 冒烟）
 ```
 
 ---
@@ -223,15 +229,16 @@ close-reading-annotator/
 
 | 声明点 | 值 |
 |--------|-----|
-| `SKILL.md` frontmatter `version` | `2.7.0` |
-| `references/schema.md` Schema 版本 | `2.7.0` |
-| 批注 JSON `schema_version` 字段 | `2.7.0`（L1–L3 向后兼容 `2.6.0`） |
-| `_metadata.skill_version` | `2.7.0` |
+| `SKILL.md` frontmatter `version` | `2.8.0` |
+| `references/schema.md` Schema 版本 | `2.8.0` |
+| 批注 JSON `schema_version` 字段 | `2.8.0`（L1–L3 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`） |
+| `_metadata.skill_version` | `2.8.0` |
 
 修改任何枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**，最后更新版本号。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
 
 主要里程碑：
-- **v2.7.0**：新增 D19 情感层（P4 独立产物 `emotion.jsonl`）、`emotion-lexicon.md`、`emotion-output.json` 模板、P4 触发式流程
+- **v2.8.0**：数据修复与管道硬化（Gate 0-3 + R1.0）——594行格式统一（craft顶层→layers.craft，emotion D19嵌套→直接格式）、_provenance溯源字段全覆盖、checkpoint重建、D18补齐（shanghai 92.1%）、机械审计脚本audit_v27.py、schema.md同步升级
+- **v2.7.0**：新增 D19 情感层（P4 独立产物 `emotion.jsonl`）、`emotion-lexicon.md`、`emotion-output.json` 模板、P4 触发式流程；同日工程化修复轮（决策18）：--input-json/--all-pending批量驱动、校验失败自动span修复重试、select_segments段采样、run_pipeline一体化、RUNBOOK.md
 - **v2.6.0**：真实全本运行补丁（Windows GBK 编码/checkpoint 回写/报告增强）+ D04 `polarity` 必填 + `--preserve-curated` + `fill_spans.py`
 - **v2.5.0**：架构大升级 3 层 → 4 层（每层独立 JSONL、二阶段跨段、merged、7 项 P0 修复）
 - **v2.0–v2.3**：单 JSONL 时代（已废弃，数据需迁移）

@@ -1,6 +1,6 @@
 {
-  "_comment": "情感分析（D19，阐释层 Layer 2.5 扩展）输出模板。v2.7.0 新增，P4 Pass 独立产物。emotion 枚举见 references/emotion-lexicon.md（44 词）；expression.key_phrases 每项必须是 text_span.text 子串；target/trigger/arc 无明确值时写 null + 顶层 null_reasons，禁止编造。请勿输出 _comment。",
-  "schema_version": "2.7.0",
+  "_comment": "情感分析（D19，阐释层 Layer 2.5 扩展）输出模板。v2.8 格式统一：emotion 内容直接在 layers.emotion 下（不再嵌套 D19_emotion_analysis）。emotion 枚举见 references/emotion-lexicon.md（44 词）；expression.key_phrases 每项必须是 text_span.text 子串；target/trigger/arc 无明确值时写 null + 顶层 null_reasons，禁止编造。请勿输出 _comment。",
+  "schema_version": "2.8.0",
   "annotation_id": "<doc_id>_seg_<NNNN>_emotion_ann_0",
   "document_id": "<doc_id>",
   "segment_id": "<doc_id>_seg_<NNNN>",
@@ -14,22 +14,20 @@
   },
   "layers": {
     "emotion": {
-      "D19_emotion_analysis": {
-        "primary": {
-          "emotion": "<emotion-lexicon.md 44 词之一，如 冷峻中的悲悯>",
-          "intensity": 6,
-          "polarity": "mixed"
-        },
-        "secondary": null,
-        "target": null,
-        "trigger": null,
-        "arc": null,
-        "expression": {
-          "direct": false,
-          "indirect": true,
-          "key_phrases": ["<原文子串1>", "<原文子串2>"],
-          "note": "<补充说明，可 null>"
-        }
+      "primary": {
+        "emotion": "<emotion-lexicon.md 44 词之一，如 悲悯>",
+        "intensity": 6,
+        "polarity": "mixed"
+      },
+      "secondary": null,
+      "target": null,
+      "trigger": null,
+      "arc": null,
+      "expression": {
+        "direct": false,
+        "indirect": true,
+        "key_phrases": ["<原文子串1>", "<原文子串2>"],
+        "note": "<补充说明，可 null>"
       }
     }
   },
@@ -43,10 +41,14 @@
   "null_reasons": {},
   "alternatives": [],
   "status": "confirmed",
+  "_provenance": {
+    "run_id": "<运行ID，如 v28_batch_20260905>",
+    "generator": "<生成方式，如 llm_external / manual>",
+    "model": "<模型名，如 deepseek-r1>",
+    "generated_at": "ISO8601"
+  },
   "_metadata": {
-    "skill_version": "2.7.0",
-    "model": "deepseek-r1",
-    "generated_at": "ISO8601",
+    "skill_version": "2.8.0",
     "layer": "emotion",
     "annotation_pass": "P4"
   }

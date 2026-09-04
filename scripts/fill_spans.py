@@ -39,14 +39,13 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-# craft 中带 text+span 的维度（D18 用 pattern、span 规则不同，不在此列）
-CRAFT_TEXT_DIMS = [
-    "D13_golden_lines",
-    "D14_rhetoric",
-    "D15_imagery",
-    "D16_diction",
-    "D17_syntax",
-]
+# v2.7 工程化修复轮（决策 18）：span 定位算法抽为公共模块 scripts/span_locator.py，本脚本复用
+sys.path.insert(0, str(Path(__file__).parent))
+from span_locator import (  # noqa: E402
+    CRAFT_TEXT_DIMS,
+    find_span,
+    slice_similarity,
+)
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -73,68 +72,6 @@ def _load_segment_texts(segments_path: Path) -> dict[str, str]:
     return out
 
 
-def _collapse_whitespace(raw: str) -> tuple[str, list[int]]:
-    """把任意连续空白折叠为单个空格（对齐 " ".join(s.split())）。
-    返回 (归一文本, 每个归一字符对应的 raw 下标)。"""
-    norm_chars: list[str] = []
-    index_map: list[int] = []
-    prev_ws = True  # 开头空白丢弃
-    for i, ch in enumerate(raw):
-        if ch.isspace():
-            if not prev_ws:
-                norm_chars.append(" ")
-                index_map.append(i)
-            prev_ws = True
-        else:
-            norm_chars.append(ch)
-            index_map.append(i)
-            prev_ws = False
-    if norm_chars and norm_chars[-1] == " ":
-        norm_chars.pop()
-        index_map.pop()
-    return "".join(norm_chars), index_map
-
-
-def _find_span(raw_text: str, quote: str) -> dict | None:
-    """定位 quote 在 raw_text 中的段内相对 span；找不到返回 None。"""
-    if not raw_text or not quote:
-        return None
-    quote = quote.strip()
-    if not quote:
-        return None
-    # 1) 精确子串
-    idx = raw_text.find(quote)
-    if idx >= 0:
-        return {"start": idx, "end": idx + len(quote)}
-    # 2) 空白归一化子串（validate_output 的引文校验同口径）
-    hay, hay_map = _collapse_whitespace(raw_text)
-    needle = " ".join(quote.split())
-    if not needle:
-        return None
-    n = hay.find(needle)
-    if n < 0:
-        return None
-    s = hay_map[n]
-    e = hay_map[n + len(needle) - 1] + 1
-    if s < e <= len(raw_text):
-        return {"start": s, "end": e}
-    return None
-
-
-def _slice_sim(raw_text: str, span: dict | None, text: str) -> float:
-    """现有 span 切片与 text 的相似度（difflib ratio，与 validate 一致）。"""
-    try:
-        if not span or not raw_text:
-            return 0.0
-        s, e = int(span["start"]), int(span["end"])
-        if not (0 <= s < e <= len(raw_text)):
-            return 0.0
-        from difflib import SequenceMatcher
-        return SequenceMatcher(None, raw_text[s:e], text).ratio()
-    except Exception:
-        return 0.0
-
-
 def _fill_craft_row(row: dict, seg_text: str) -> tuple[int, int, list[str]]:
     """返回 (改动数, 保持数, 无法定位清单[seg_id, dim, text] 文本行说明)。"""
     changed = 0
@@ -151,10 +88,10 @@ def _fill_craft_row(row: dict, seg_text: str) -> tuple[int, int, list[str]]:
             if not quote:
                 continue
             cur = it.get("span")
-            if cur and _slice_sim(seg_text, cur, quote) >= 0.95:
+            if cur and slice_similarity(seg_text, cur, quote) >= 0.95:
                 kept += 1
                 continue
-            new = _find_span(seg_text, quote) if seg_text else None
+            new = find_span(seg_text, quote) if seg_text else None
             if new:
                 it["span"] = new
                 changed += 1
@@ -178,7 +115,7 @@ def _fill_cross_row(obj: dict, seg_texts: dict[str, str]) -> tuple[int, list[str
             if not anchor:
                 continue
             text = seg_texts.get(node.get("segment_id"), "")
-            new = _find_span(text, anchor) if text else None
+            new = find_span(text, anchor) if text else None
             if new:
                 if node.get("span") != new:
                     node["span"] = new
