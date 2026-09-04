@@ -211,11 +211,18 @@ close-reading-annotator/
 │   ├── span_locator.py              # v2.7 新增：span 定位公共模块（fill_spans/annotate 复用）
 │   ├── select_segments.py           # v2.7 新增：段采样分层（deep/light/skip 分档）
 │   ├── run_pipeline.py              # v2.7 新增：Phase 1–5 一体化驱动 + 断点续跑 + --plan
-│   └── audit_v27.py                 # v2.8 新增：机械审计脚本（引文/常量/坐标/ID 四项校验）
+│   │
+│   └── aggregation/                 # v2.9/v3.0 新增：全局聚合器（批注完成后运行，独立后处理）
+│       ├── entity_resolution.py     # v2.9 Step 1：实体消解（→ entity_graph.json）
+│       ├── scene_graph.py           # v2.9 Step 2：场景图重建（→ scene_graph.json）
+│       ├── character_arcs.py        # v2.9 Step 3：角色弧线重建（→ character_arcs.json）
+│       ├── story_type_inference.py  # v2.9 Step 4：故事类型推断（→ story_metadata.json）
+│       ├── causal_graph.py          # v3.0 Step 4：因果链生成（→ causal_graph.json）
+│       ├── object_chains.py         # v3.0 Step 5：物件链追踪（→ object_chains.json）
+│       ├── story_graph.py           # v3.0 Step 6：故事图合并（→ story_graph.json）
+│       └── adapters.py              # v3.0：text2story / YARN / NCP 适配器
 │
 ├── docs/
-│   ├── architecture.md              # 架构说明（分层/数据流/模块职责/扩展边界）
-│   ├── design-decisions.md          # 设计取舍记录
 │   └── RUNBOOK.md                   # v2.7 新增：Agent 最小操作契约（CLI 速查 + 校验错误修复表）
 │
 └── examples/
@@ -304,8 +311,8 @@ A5：不能，需要按新 Schema 迁移（结构层字段大改，需逐字段�
 | [references/emotion-anchors.md](references/emotion-anchors.md) | 情绪强度判断犹豫时 |
 | [references/emotion-lexicon.md](references/emotion-lexicon.md) | D19 情感层标注前（44 词枚举） |
 | [references/pace-anchors.md](references/pace-anchors.md) | 节奏判断犹豫时 |
-| [docs/architecture.md](docs/architecture.md) | 想理解分层/数据流/扩展边界 |
-| [docs/design-decisions.md](docs/design-decisions.md) | 想改架构前先翻历史决策 |
+
+> 架构与设计决策记录（`docs/architecture.md`、`docs/design-decisions.md`）已移至项目工作区 `docs/` 归档（T-028 起，skill 分发包只保留运行必需文档）。
 
 ---
 
