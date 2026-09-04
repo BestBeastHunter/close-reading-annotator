@@ -1,9 +1,9 @@
-# 精读批注 Skill v2.8
+# 精读批注 Skill v3.0.1
 
-> 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）。
+> 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）与**全局聚合层**（实体/场景/角色弧线/故事类型/因果链/物件链/故事图/适配器）。
 > 适合：小说精读、故事拆解、叙事分析、文笔拆解、结构化语料构建。
 > 本仓库即**完整可运行的 Skill 包**——放到 TRAE / Cursor / Claude Code 的 skills 目录即可使用，也支持纯手动模式（把 `SKILL.md` 注入任意大模型）。
-> **版本**：skill_version = `2.8.0` / schema_version = `2.8.0`。frontmatter 版本、`references/schema.md` 声明、批注 JSON 的 `schema_version`、`_metadata.skill_version` 四者严格一致（L1–L3 产物向后兼容 `2.5.0`/`2.6.0`/`2.7.0`）。
+> **版本（决策 22 三域解耦）**：skill_version = `3.0.1` / annotation schema_version = `2.8.0` / aggregation schema_version = `3.0.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`。
 
 ---
 
@@ -232,18 +232,21 @@ close-reading-annotator/
 
 ---
 
-## 五、版本治理
+## 五、版本治理（决策 22：三版本域解耦）
 
-| 声明点 | 值 |
-|--------|-----|
-| `SKILL.md` frontmatter `version` | `2.8.0` |
-| `references/schema.md` Schema 版本 | `2.8.0` |
-| 批注 JSON `schema_version` 字段 | `2.8.0`（L1–L3 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`） |
-| `_metadata.skill_version` | `2.8.0` |
+| 版本域 | 声明点 | 值 |
+|--------|--------|-----|
+| **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.0.1` |
+| **annotation schema_version** | `references/schema.md` §一 / 批注 JSON `schema_version` / annotate_segment.py / examples/llm_wrapper.py | `2.8.0` |
+| **aggregation schema_version** | `references/aggregation-schema.md` / `scripts/aggregation/*.py` | `3.0.0` |
 
-修改任何枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**，最后更新版本号。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
+> 三域独立演进（决策 22）：skill 能力升级不再强绑定批注字段变更；批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`（旧产物版本分支豁免，不迁移）。
+> 修改批注层枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**。修改聚合层产物字段：**先改 `references/aggregation-schema.md`，再改 `scripts/aggregation/*.py`**。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
 
 主要里程碑：
+- **v3.0.1**：聚合层修复轮（T-029）——adapters 字段名对齐（text2story/YARN/NCP 内容性字段全部非占位）、entity_resolution 输出 segment_ids 完整段集合（修复出场角色截断）、全脚本确定性（sorted + 平票 tie-break，复现性验证通过）、题材词表去书名化、is_reliable=None、文档收编（aggregation-schema.md 真源 + 决策 19-22）、版本号解耦 ADR
+- **v3.0.0**：生成器就绪——causal_graph（因果链）、object_chains（物件链）、story_graph（故事图合并）、adapters（text2story/YARN/NCP）
+- **v2.9.0**：全局聚合器 MVP——entity_resolution、scene_graph、character_arcs、story_type_inference
 - **v2.8.0**：数据修复与管道硬化（Gate 0-3 + R1.0）——594行格式统一（craft顶层→layers.craft，emotion D19嵌套→直接格式）、_provenance溯源字段全覆盖、checkpoint重建、D18补齐（shanghai 92.1%）、机械审计脚本audit_v27.py、schema.md同步升级
 - **v2.7.0**：新增 D19 情感层（P4 独立产物 `emotion.jsonl`）、`emotion-lexicon.md`、`emotion-output.json` 模板、P4 触发式流程；同日工程化修复轮（决策18）：--input-json/--all-pending批量驱动、校验失败自动span修复重试、select_segments段采样、run_pipeline一体化、RUNBOOK.md
 - **v2.6.0**：真实全本运行补丁（Windows GBK 编码/checkpoint 回写/报告增强）+ D04 `polarity` 必填 + `--preserve-curated` + `fill_spans.py`

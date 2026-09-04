@@ -3,7 +3,7 @@
 > **⚠️ 本文件是唯一真源。** 所有枚举值、字段格式、span 坐标系、引文校验规则，**只以本文件为准**。
 > SKILL.md、`scripts/validate_output.py`、`templates/*.json` 下游三者的定义必须完全同步于本文件。
 > 版本号 `2.8.0` 必须与 SKILL.md frontmatter、新批注 JSON 的 `schema_version`、`_metadata.skill_version` 一致。
-> 校验器向后兼容：`2.5.0` / `2.6.0` / `2.7.0` 旧产物仍被接受（版本分支豁免，见 §八）。
+> 校验器向后兼容：`2.5.0` / `2.6.0` / `2.7.0` / `2.8.0` 旧产物仍被接受（版本分支豁免，见 §八）。
 > **唯一例外**：D19 的 `emotion` 枚举（44 词）因需随语料演化，真源为 `references/emotion-lexicon.md`——本文件只声明引用，validate_output.py 白名单须逐词同步 emotion-lexicon.md。
 
 ---
@@ -30,7 +30,7 @@
 
 | 根键 | 类型 | 是否必填 | 说明 |
 |------|------|:--------:|------|
-| `schema_version` | string | ✅ | 新产物固定为 `"2.7.0"`（emotion 文件必为 2.7.0；L1–L3 续批可写 2.7.0 或保持 2.6.0，均合法，见 §八）。validate_output 接受 `"2.5.0"` / `"2.6.0"` / `"2.7.0"`：2.6 新增必填子字段 `D04.polarity`（对 2.5.0 版本分支豁免）；2.7 新增可选扩展 D19（emotion 文件，2.5/2.6 产物无此层，不校验）；下游读到未知主号直接报错。 |
+| `schema_version` | string | ✅ | 新产物固定为 `"2.8.0"`（emotion 文件必为 2.8.0；L1–L3 续批可写 2.8.0 或保持 2.7.0/2.6.0，均合法，见 §八）。validate_output 接受 `"2.5.0"` / `"2.6.0"` / `"2.7.0"` / `"2.8.0"`：2.6 新增必填子字段 `D04.polarity`（对 2.5.0 版本分支豁免）；2.7 新增可选扩展 D19（emotion 文件，2.5/2.6 产物无此层，不校验）；2.8 统一 craft/emotion 格式（2.7 嵌套旧格式版本分支豁免）；下游读到未知主号直接报错。 |
 | `annotation_id` | string | ✅ | 全局唯一 ID。格式：`<doc_id>_seg_<segment序号>_<layer>_<annotation序号>`，如 `moon_sixpence_seg_0001_structure_ann_0`。 |
 | `document_id` | string | ✅ | 用户自定义文档 ID。同一文档所有片段/所有层共享此 ID。 |
 | `segment_id` | string | ✅ | 片段 ID，格式：`<doc_id>_seg_<4位十进制序号>`，如 `moon_sixpence_seg_0001`。**必须带 doc_id 前缀**——避免多文档合并时 ID 碰撞。 |
@@ -526,7 +526,7 @@ Layer 4 **不在逐片段中执行**——等 Layer 1-3 全部完成后，独立
 ```json
 {
   "doc_id": "...",
-  "schema_version": "2.7.0",
+  "schema_version": "2.8.0",
   "total_segments": 58,
   "completed": [
     { "segment": "<doc_id>_seg_0001", "layers": ["structure", "interpretation", "craft", "emotion"] },

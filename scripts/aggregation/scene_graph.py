@@ -32,7 +32,7 @@ try:
 except Exception:
     pass
 
-SCHEMA_VERSION = "2.9.0"
+SCHEMA_VERSION = "3.0.0"
 
 # D01 叙事功能枚举
 NARRATIVE_FUNCTIONS = {
@@ -277,8 +277,16 @@ def build_scenes(segments: list[dict], spatio: dict[str, dict]) -> list[dict]:
     return scenes
 
 
-def enrich_scene_with_entities(scene: dict, entity_graph: dict | None) -> dict:
-    """用实体图谱丰富场景信息（出场角色）。"""
+def enrich_scene_with_entities(scene: dict, entity_graph: dict | None, segments: list[dict]) -> dict:
+    """用实体图谱丰富场景信息（出场角色）。
+
+    v3.0.1 修复（T-029 P1-2）：此前只依赖 entity_graph 的 mentions_sample（每实体截断前20条），
+    主角采样全落前段 → 后半本书场景 characters_present 大面积为空。
+    现在按优先级取段集合：
+      1. entity.segment_ids（v3.0.1 新增：完整段集合，首选）
+      2. mentions_sample（旧产物兼容）
+      3. 采样段数 < segment_count 时 → 用别名在原文中回退匹配（对齐 character_arcs 补救）
+    """
     if not entity_graph:
         scene["characters_present"] = []
         return scene
@@ -286,10 +294,24 @@ def enrich_scene_with_entities(scene: dict, entity_graph: dict | None) -> dict:
     seg_set = set(scene["segments"])
     characters = []
     for entity in entity_graph.get("entities", []):
-        entity_segs = set()
-        for mention in entity.get("mentions_sample", []):
-            if mention.get("segment_id") in seg_set:
-                entity_segs.add(mention["segment_id"])
+        # 优先完整段集合；旧产物无 segment_ids 时回退 mentions_sample
+        entity_seg_ids = entity.get("segment_ids")
+        if entity_seg_ids:
+            entity_segs = {s for s in entity_seg_ids if s in seg_set}
+        else:
+            entity_segs = {
+                m.get("segment_id") for m in entity.get("mentions_sample", [])
+                if m.get("segment_id") in seg_set
+            }
+            # 采样不足（< segment_count）→ 别名原文匹配回退
+            if len(entity_segs) < entity.get("segment_count", 0):
+                aliases = [entity.get("canonical_name", "")] + list(entity.get("aliases", []))
+                for seg in segments:
+                    if seg["segment_id"] not in seg_set:
+                        continue
+                    text = seg.get("text_span", {}).get("text", "")
+                    if any(a and a in text for a in aliases):
+                        entity_segs.add(seg["segment_id"])
         if entity_segs:
             characters.append({
                 "entity_id": entity["entity_id"],
@@ -357,11 +379,17 @@ def main() -> int:
         scene["segment_count"] = len(scene["segments"])
         scene["primary_time"] = scene["time_labels"][0] if scene["time_labels"] else None
         scene["primary_space"] = scene["space_labels"][0] if scene["space_labels"] else None
-        scene["primary_function"] = max(set(scene["function_sequence"]), key=scene["function_sequence"].count) if scene["function_sequence"] else None
+        # v3.0.1 修复（T-029 P2-3 扩展）：max(set(...), key=count) 平票时取 set 首元素，
+        # 迭代顺序随 PYTHONHASHSEED 漂移 → 改为确定性 tie-break（同票取先出现者）
+        if scene["function_sequence"]:
+            seq = scene["function_sequence"]
+            scene["primary_function"] = max(set(seq), key=lambda f: (seq.count(f), -seq.index(f)))
+        else:
+            scene["primary_function"] = None
         scene["avg_intensity"] = sum(scene["intensity_values"]) / len(scene["intensity_values"]) if scene["intensity_values"] else None
         scene["max_intensity"] = max(scene["intensity_values"]) if scene["intensity_values"] else None
         # 用实体图谱丰富
-        enrich_scene_with_entities(scene, entity_graph)
+        enrich_scene_with_entities(scene, entity_graph, segments)
 
     # Step 4: 构建 scene_graph
     print("\n🚀 Step 4: 构建 scene_graph.json...")

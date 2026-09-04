@@ -1,8 +1,8 @@
 # RUNBOOK — close-reading-annotator 最小操作契约
 
 > **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
-> 完整 schema / 枚举 / 设计决策见 `references/schema.md`、`SKILL.md`、`docs/design-decisions.md`。
-> 版本：v2.7.0（含决策 18 工程化修复轮）
+> 完整 schema / 枚举 / 设计决策见 `references/schema.md`（批注层）、`references/aggregation-schema.md`（聚合层）、`SKILL.md`、工作区 `docs/design-decisions.md`。
+> 版本：skill v3.0.1 / annotation schema 2.8.0 / aggregation schema 3.0.0（决策 22 三域解耦）
 
 ---
 
@@ -127,6 +127,45 @@ python scripts/run_pipeline.py --input <原文.txt> --doc-id <doc_id> --output-d
 | `fill_spans.py` | 存量 craft 产物 span 回补（决策 18 后生成期已自动修复，此脚本仅用于旧产物迁移） |
 | `export_dataset.py` | 训练数据导出脱敏（版权合规） |
 | `span_locator.py` | 公共模块：`text.find` 定位 + 相似度回算（annotate_segment / fill_spans 共用） |
+
+### 2.7 aggregation/ 聚合层 8 脚本（v2.9/v3.0，批注完成后运行）
+
+> 全链路 <2s/本，纯规则零依赖。Schema 真源：`references/aggregation-schema.md`。建议按 ①→⑧ 顺序跑；缺输入时各脚本自行报错，可逐脚本重跑（覆盖写，幂等）。
+
+| # | 脚本 | 必填参数 | 产出 |
+|:-:|------|---------|------|
+| ① | `entity_resolution.py` | `--segments --emotion --craft --structure --doc-id --output-dir` | `{doc}_entity_graph.json` |
+| ② | `scene_graph.py` | `--segments --structure --doc-id --output-dir --entity-graph` | `{doc}_scene_graph.json` |
+| ③ | `character_arcs.py` | `--segments --structure --emotion --entity-graph --doc-id --output-dir` | `{doc}_character_arcs.json` |
+| ④ | `story_type_inference.py` | `--segments --structure [--interpretation] [--emotion] --doc-id --output-dir` | `{doc}_story_metadata.json` |
+| ⑤ | `causal_graph.py` | `--cross-segment --structure --doc-id --output-dir` | `{doc}_causal_graph.json` |
+| ⑥ | `object_chains.py` | `--craft --doc-id --output-dir` | `{doc}_object_chains.json` |
+| ⑦ | `story_graph.py` | `--aggregation-dir --doc-id --output-dir` | `{doc}_story_graph.json`（合并①-⑥） |
+| ⑧ | `adapters.py` | `--story-graph --doc-id --output-dir [--formats text2story,yarn,ncp]` | `{doc}_{text2story,yarn,ncp}.json` |
+
+**典型一条链**（moon 示例，`AGG=scripts/aggregation`）：
+
+```bash
+python $AGG/entity_resolution.py --segments $OUT/${DOC}_segments.jsonl --doc-id $DOC \
+    --output-dir $OUT/aggregation --emotion $OUT/${DOC}_emotion.jsonl \
+    --craft $OUT/${DOC}_craft.jsonl --structure $OUT/${DOC}_structure.jsonl
+python $AGG/scene_graph.py --segments $OUT/${DOC}_segments.jsonl --structure $OUT/${DOC}_structure.jsonl \
+    --doc-id $DOC --output-dir $OUT/aggregation --entity-graph $OUT/aggregation/${DOC}_entity_graph.json
+python $AGG/character_arcs.py --segments $OUT/${DOC}_segments.jsonl --structure $OUT/${DOC}_structure.jsonl \
+    --emotion $OUT/${DOC}_emotion.jsonl --entity-graph $OUT/aggregation/${DOC}_entity_graph.json \
+    --doc-id $DOC --output-dir $OUT/aggregation
+python $AGG/story_type_inference.py --segments $OUT/${DOC}_segments.jsonl --structure $OUT/${DOC}_structure.jsonl \
+    --interpretation $OUT/${DOC}_interpretation.jsonl --emotion $OUT/${DOC}_emotion.jsonl \
+    --doc-id $DOC --output-dir $OUT/aggregation
+python $AGG/causal_graph.py --cross-segment $OUT/${DOC}_cross_segment.jsonl --structure $OUT/${DOC}_structure.jsonl \
+    --doc-id $DOC --output-dir $OUT/aggregation
+python $AGG/object_chains.py --craft $OUT/${DOC}_craft.jsonl --doc-id $DOC --output-dir $OUT/aggregation
+python $AGG/story_graph.py --aggregation-dir $OUT/aggregation --doc-id $DOC --output-dir $OUT/aggregation
+python $AGG/adapters.py --story-graph $OUT/aggregation/${DOC}_story_graph.json \
+    --doc-id $DOC --output-dir $OUT/aggregation/adapters
+```
+
+**常见坑**：① ⑤缺 `--cross-segment`（需先跑 Phase 3）会直接报错退出；② ⑧的 `participants` 为空≠bug——frontmatter/过渡段无角色出场是合法数据特性（占全部场景 ≤10%）；③ 聚合产物含 `generated_at` 时间戳，字节级对比产物时先排除该字段。
 
 ---
 

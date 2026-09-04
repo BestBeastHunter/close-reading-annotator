@@ -47,29 +47,42 @@ def adapt_text2story(story_graph: dict, doc_id: str) -> dict:
     - places: 地点表达式
     """
     sg = story_graph.get("story_graph", {})
+    # v3.0.1 修复（T-029 P1-1①）：participants.type 不再依赖不存在的 entity_type——
+    # entity_graph 无 entity_type 字段（曾导致全员误标 ORG）。实体图谱的提取目标即角色指称
+    # （D19.target / D18.character / 原文人名 NER），故人物实体统一标 PER；
+    # 非人物实体（地点/意象误入）属于 entity_resolution 消解质量问题，不在适配器层兜底。
 
-    # 参与者（来自实体图谱，过滤主要角色）
+    # 参与者（来自实体图谱；entity_graph 语义即人物实体 → 统一 PER）
     participants = []
     for entity in sg.get("entities", []):
         participants.append({
             "id": entity.get("entity_id", f"p{len(participants)+1}"),
             "name": entity.get("canonical_name", ""),
-            "type": "PER" if entity.get("entity_type") == "character" else "ORG",
+            "type": "PER",
             "aliases": entity.get("aliases", []),
             "mention_count": entity.get("occurrence_count", 0),
+            "segment_count": entity.get("segment_count", 0),
         })
 
     # 事件（来自场景图，每个场景作为一个事件）
+    # v3.0.1 修复（T-029 P1-1①）：text/tense/participants 对齐上游真实字段——
+    # 场景无 scene_summary/time/characters，真实字段为 primary_function / primary_time / characters_present
     events = []
     for i, scene in enumerate(sg.get("scenes", []), 1):
+        func = scene.get("primary_function") or "未知功能"
+        # primary_time 缺失时依次回退 time_labels 首项；仍无 → "未知"（诚实标记数据缺失，非占位）
+        tense = (scene.get("primary_time")
+                 or (scene.get("time_labels") or [""])[0]
+                 or "未知")
         events.append({
             "id": f"e{i:03d}",
             "class": "Event",
-            "text": scene.get("scene_summary", f"场景{i}"),
-            "tense": scene.get("time", "未知"),
-            "participants": scene.get("characters", []),
+            "text": f"{func}（{scene.get('start_segment','')}~{scene.get('end_segment','')}）",
+            "tense": tense,
+            "participants": scene.get("characters_present", []),
             "start_segment": scene.get("start_segment", ""),
             "end_segment": scene.get("end_segment", ""),
+            "function_sequence": scene.get("function_sequence", []),
         })
 
     # 时间（来自场景的 primary_time 字段）
@@ -134,17 +147,20 @@ def adapt_yarn(story_graph: dict, doc_id: str) -> dict:
     sg = story_graph.get("story_graph", {})
 
     # 事件链（来自场景图，按顺序）
+    # v3.0.1 修复（T-029 P1-1③）：label 对齐上游真实字段——场景无 scene_summary，
+    # 真实语义标签为 primary_function（曾导致全部事件链 label="事件N" 占位）
     event_chain = []
     for i, scene in enumerate(sg.get("scenes", []), 1):
         event_chain.append({
             "event_id": f"evt_{i:03d}",
-            "label": scene.get("scene_summary", f"事件{i}"),
+            "label": scene.get("primary_function", f"事件{i}"),
             "order": i,
             "start_segment": scene.get("start_segment", ""),
             "end_segment": scene.get("end_segment", ""),
             "duration_segments": scene.get("segment_count", 1),
             "location": scene.get("primary_space", ""),
             "time": scene.get("primary_time", ""),
+            "characters": scene.get("characters_present", []),
         })
 
     # 修辞关系（来自因果图的边）
@@ -215,14 +231,19 @@ def adapt_ncp(story_graph: dict, doc_id: str) -> dict:
     sg = story_graph.get("story_graph", {})
 
     # 角色（含弧线数据）
+    # v3.0.1 修复（T-029 P1-1④）：字段名对齐上游 character_arcs 真实结构——
+    # arc_type → arc_classification.arc_type；trajectory_point_count → trajectory_length；
+    # trajectory → trajectory_sample（曾导致主角 arc_type=""、trajectory_points=0、emotional_trajectory 恒空）
     characters = []
     for arc in sg.get("character_arcs", []):
         characters.append({
             "character_id": arc.get("entity_id", arc.get("character_id", "")),
             "name": arc.get("canonical_name", ""),
-            "arc_type": arc.get("arc_type", ""),
-            "trajectory_points": arc.get("trajectory_point_count", 0),
+            "gender": arc.get("gender", ""),
+            "arc_type": arc.get("arc_classification", {}).get("arc_type", ""),
+            "trajectory_points": arc.get("trajectory_length", 0),
             "coverage_rate": arc.get("coverage_rate", 0),
+            "d19_coverage": arc.get("d19_coverage", 0),
             "first_appearance": arc.get("first_segment", ""),
             "last_appearance": arc.get("last_segment", ""),
             "emotional_trajectory": [
@@ -232,7 +253,7 @@ def adapt_ncp(story_graph: dict, doc_id: str) -> dict:
                     "intensity": p.get("intensity", 0),
                     "polarity": p.get("polarity", ""),
                 }
-                for p in arc.get("trajectory", [])[:10]  # 最多保留10个点
+                for p in (arc.get("trajectory_sample") or [])[:10]  # 最多保留10个点
             ],
         })
 
@@ -261,7 +282,20 @@ def adapt_ncp(story_graph: dict, doc_id: str) -> dict:
             "segment_count": scene.get("segment_count", 1),
         })
 
-    # 情节结构（按 D01 叙事功能分组）
+    # 情节结构（按 D01 叙事功能分组，从场景 primary_function 填充）
+    # v3.0.1 修复（T-029 P1-1⑤）：七桶此前初始化后从未填充（死结构）——
+    # 现在按场景 primary_function 归类填充，复合功能/无法判断落入 other 桶
+    D01_TO_PLOT_BUCKET = {
+        "背景铺垫": "exposition",
+        "激励事件": "inciting_incident",
+        "上升行动": "rising_action",
+        "高潮": "climax",
+        "下降行动": "falling_action",
+        "结局": "resolution",
+        "过渡": "transition",
+        "复合功能": "other",
+        "无法判断": "other",
+    }
     plot_structure = {
         "exposition": [],      # 背景铺垫
         "inciting_incident": [],  # 激励事件
@@ -270,7 +304,18 @@ def adapt_ncp(story_graph: dict, doc_id: str) -> dict:
         "falling_action": [],  # 下降行动
         "resolution": [],      # 结局
         "transition": [],      # 过渡
+        "other": [],           # 复合功能 / 无法判断
     }
+    for scene in sg.get("scenes", []):
+        func = scene.get("primary_function") or "无法判断"
+        bucket = D01_TO_PLOT_BUCKET.get(func, "other")
+        plot_structure[bucket].append({
+            "scene_id": scene.get("scene_id", ""),
+            "function": func,
+            "start_segment": scene.get("start_segment", ""),
+            "end_segment": scene.get("end_segment", ""),
+            "segment_count": scene.get("segment_count", 1),
+        })
 
     # 故事元数据
     story_metadata = story_graph.get("story_metadata", {})

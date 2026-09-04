@@ -1,21 +1,23 @@
 ---
 name: close-reading-annotator
-version: 2.7.0
+version: 3.0.1
 description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v2.7
+# 四层精读批注 Skill v3.0.1
 
-对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。
+对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
-**核心原则**：每段每层独立落盘 → 断点续跑 → Layer 4 二阶段执行 → 四层合并输出。
+**核心原则**：每段每层独立落盘 → 断点续跑 → Layer 4 二阶段执行 → 四层合并输出 → 聚合层拼图出全局叙事结构。
 
-> **版本声明（唯一真源同步）**：
-> - 本文件 frontmatter `version: 2.7.0` = `references/schema.md` §一 Schema 版本 = 批注 JSON `schema_version` = `_metadata.skill_version`。**四者必须严格一致**。
-> - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0`。v2.6.0 新增必填 `D04.polarity`（2.5.0 旧产物豁免）；v2.7.0 新增可选扩展 **D19**（独立 `emotion.jsonl`），L1–L3 零迁移。
-> - **枚举真源**：`references/schema.md`（本文件速览 / validate_output.py / templates 均须同步）。**唯一例外**：D19 `emotion` 枚举（44 词）真源为 `references/emotion-lexicon.md`（决策 17 特批）。
+> **版本声明（决策 22：三版本域解耦）**：
+> - **skill version** = `3.0.1`（本文件 frontmatter = README = RUNBOOK）。聚合层（v2.9/v3.0）与 v3.0.1 修复轮已并入。
+> - **annotation schema_version** = `2.8.0`（`references/schema.md` §一 = 批注 JSON `schema_version` = annotate_segment.py / examples/llm_wrapper.py）。**注意**：批注数据 schema 与 skill 版本解耦，skill 升 3.x 不代表批注字段变更。
+> - **aggregation schema_version** = `3.0.0`（`references/aggregation-schema.md` = `scripts/aggregation/*.py`）。
+> - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0 / 2.8.0`（旧产物版本分支豁免，不迁移）。
+> - **枚举真源**：批注层 `references/schema.md`；聚合层 `references/aggregation-schema.md`（本文件速览 / validate_output.py / templates 均须同步）。**唯一例外**：D19 `emotion` 枚举（44 词）真源为 `references/emotion-lexicon.md`（决策 17 特批）。
 
 ---
 
@@ -185,6 +187,44 @@ python scripts/select_segments.py --structure <out>/{doc_id}_structure.jsonl
 
 **默认分档规则**（CLI 可覆盖）：D01 ∈ {激励事件, 上升行动, 高潮, 转折} 或 D04.intensity ≥ 6 或 D07.is_switch_point=true → **deep**（再跑 interpretation/craft…）；D01 ∈ {背景铺垫, 过渡} → **skip**；其余 → **light**。下游 `run_pipeline.py --plan` 消费：structure 全量跑，深度层只跑 deep 段。
 
+### 3.7 聚合层（v2.9/v3.0，可选但推荐）——批注 → 全局叙事结构
+
+**批注管"逐段信号"，聚合管"全书拼图"**。聚合层把 L1-L4 批注（+D19/D15/D18 细粒度信号）组装成全局叙事图，供生成侧 / 叙事分析直接消费。8 个脚本纯规则零第三方依赖，全链路 <2s/本。
+
+```bash
+AGG=scripts/aggregation
+# ① 实体消解（D19.target + D18.character + 人名 NER → entity_graph）
+python $AGG/entity_resolution.py --segments <out>/{doc_id}_segments.jsonl --doc-id <doc_id> \
+    --output-dir <out>/aggregation --emotion <out>/{doc_id}_emotion.jsonl \
+    --craft <out>/{doc_id}_craft.jsonl --structure <out>/{doc_id}_structure.jsonl
+# ② 场景图（D08 时空 + D01 功能连续性合并段 → scene_graph）
+python $AGG/scene_graph.py --segments <out>/{doc_id}_segments.jsonl --structure <out>/{doc_id}_structure.jsonl \
+    --doc-id <doc_id> --output-dir <out>/aggregation --entity-graph <out>/aggregation/{doc_id}_entity_graph.json
+# ③ 角色弧线（按实体聚合 D19/D04 情绪点 → character_arcs）
+python $AGG/character_arcs.py --segments <out>/{doc_id}_segments.jsonl --structure <out>/{doc_id}_structure.jsonl \
+    --emotion <out>/{doc_id}_emotion.jsonl --entity-graph <out>/aggregation/{doc_id}_entity_graph.json \
+    --doc-id <doc_id> --output-dir <out>/aggregation
+# ④ 故事类型推断（六维：题材/叙事风格/时间结构/情感曲线/节奏/读者体验 → story_metadata）
+python $AGG/story_type_inference.py --segments <out>/{doc_id}_segments.jsonl --structure <out>/{doc_id}_structure.jsonl \
+    --interpretation <out>/{doc_id}_interpretation.jsonl --emotion <out>/{doc_id}_emotion.jsonl \
+    --doc-id <doc_id> --output-dir <out>/aggregation
+# ⑤ 因果链（cross_segment 关系 → CAUSE/ENABLE 边）
+python $AGG/causal_graph.py --cross-segment <out>/{doc_id}_cross_segment.jsonl --structure <out>/{doc_id}_structure.jsonl \
+    --doc-id <doc_id> --output-dir <out>/aggregation
+# ⑥ 物件链（D15 意象聚类 → object_chains）
+python $AGG/object_chains.py --craft <out>/{doc_id}_craft.jsonl --doc-id <doc_id> --output-dir <out>/aggregation
+# ⑦ 故事图合并（五子图谱 + story_metadata → story_graph.json）
+python $AGG/story_graph.py --aggregation-dir <out>/aggregation --doc-id <doc_id> --output-dir <out>/aggregation
+# ⑧ 适配器（story_graph → text2story / YARN / NCP 三种叙事格式）
+python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.json \
+    --doc-id <doc_id> --output-dir <out>/aggregation/adapters --formats text2story,yarn,ncp
+```
+
+**产物依赖链**：①②③④⑥ 只依赖批注层 JSONL；⑤ 依赖 cross_segment；⑦ 依赖①-⑥全部；⑧ 依赖⑦。失败/缺输入时各脚本自行报错退出，可逐脚本重跑（覆盖写，幂等）。
+
+**聚合层 Schema 唯一真源**：`references/aggregation-schema.md`（决策 22）。改字段先改该文件再改脚本。
+**v3.0.1 修复摘要**（决策 22）：adapters 字段名对齐上游真实字段（text2story/YARN/NCP 内容性字段全部非占位）、entity_resolution 输出 `segment_ids` 完整段集合（修复出场角色截断）、全脚本 `sorted(set(...))` 确定性、题材词表去书名化。
+
 ---
 
 ## 4. 四层输出架构速览 + 最易错点
@@ -304,12 +344,14 @@ python scripts/select_segments.py --structure <out>/{doc_id}_structure.jsonl
 |------|------|------|
 | **Agent 最小操作契约（CLI 速查 + 校验错误修复表）** | `docs/RUNBOOK.md` | 每个新运行者（尤其 Agent）开始前必读；比本文件更短 |
 | **四层 Schema 完整定义（唯一真源）** | `references/schema.md` | 写 D01/D04/D07/D10/D11/关系类型 等不确定时 |
+| **聚合层 Schema 完整定义（唯一真源）** | `references/aggregation-schema.md` | 跑/改 `scripts/aggregation/` 8 脚本或消费聚合产物前 |
 | **Few-shot 完整批注示例** | `references/annotation-examples.md` | 开始批注前看 1–2 条找感觉 |
 | **情绪校准锚点完整表** | `references/emotion-anchors.md` | 情绪强度犹豫时 |
 | **D19 情感词表（44 词，枚举真源）** | `references/emotion-lexicon.md` | 跑 P4/D19 前必读 |
 | **节奏校准锚点完整表** | `references/pace-anchors.md` | 节奏犹豫时 |
 | **每层输出模板（可直接填充）** | `templates/*-output.json` | 避免漏字段 |
-| **设计决策记录** | `docs/design-decisions.md` | 想改架构前先读 |
+| **设计决策记录** | 工作区 `docs/design-decisions.md`（已移出 skill 包归档） | 想改架构前先读；本 skill 包内不再携带 |
+| **架构说明 / 审计报告** | 工作区 `docs/architecture.md` / `docs/audit/v30-audit-report.md`（归档） | 深度排查时 |
 
 ---
 
@@ -330,14 +372,17 @@ cp -r close-reading-annotator/ ~/.claude/skills/    # Claude Code
 
 | 版本 | 日期 | 变化 |
 |------|------|------|
-| **2.8.0** | 2026-09-04 | **数据修复与管道硬化**（v2.8 Gate 0-3 + R1.0）：①Gate 0 冻结侦查——manifest.json（24文件SHA256+mtime）+ contamination_report.json（确认无真实跨书污染，11处专有名词命中全为误报）+ segmentation_version_record.json；②R1.0 根因复盘——`docs/rca/data_quality_rca_v28.md`，4项问题根因定位，**关键修正：上一轮"emotion空壳行"为格式误判**（D19_emotion_analysis多嵌套一层，138行全部有primary）；③Gate 1 数据修复——594行全部修复：craft 152行/emotion 138行格式统一（顶层craft→layers.craft，D19_emotion_analysis嵌套→layers.emotion直接格式），checkpoint重建（moon 89段/345层条目，shanghai 63段/249层条目），删除4个临时文件，_provenance字段全覆盖（run_id/generator/model/generated_at）；④Gate 2 机械验证——新增 `scripts/audit_v27.py`（V2.1引文/V2.2常量/V2.3坐标/V2.4 ID四项校验），运行结果0错误15警告（非强制），`audit_report_v28.json`；⑤Gate 3 D18补齐——shanghai 58/63行有D18（92.1%），新增150条D18覆盖7角色，moon原有83.1%，两书均>80%达标。**schema.md同步升级2.8.0**：新增_provenance全局元字段、emotion格式统一、D18扩展speech_verb_distribution/dialogue_length_avg。v2.9全局聚合器MVP/v3.0生成器就绪为后续版本。 |
+| **3.0.1** | 2026-09-05 | **聚合层修复轮（决策 22，T-029 闭环）**：①adapters.py 字段名对齐上游真实字段——text2story events 改读 `primary_function/primary_time/characters_present`（原读不存在的 scene_summary/time/characters 全占位）、participants 统一 PER（原读不存在的 entity_type 全员误标 ORG）、YARN label 改读 primary_function、NCP 角色改读 `arc_classification.arc_type/trajectory_length/trajectory_sample`（原恒空）+ plot_structure 七桶按 primary_function 实际填充（原死结构）；②entity_resolution 输出 `segment_ids` 完整段集合 + scene_graph/character_arcs 优先完整段集合、采样不足回退原文别名匹配（修复出场角色截断，后半本书 characters_present 大面积为空）；③全脚本 `sorted(set(...))` + scene_graph primary_function 平票确定性 tie-break（消除 PYTHONHASHSEED 顺序漂移，复现性验证 6 产物两次运行哈希一致）；④character_arcs 回退阈值 `< segment_count`（原 *0.5 致 coverage_rate 虚高）；⑤题材关键词去书名化（删上海堡垒/月亮专属词，T-004 前置）；⑥无可靠性标注时 `is_reliable=None`（原默认 True 无证据声称可靠）；⑦文档收编：SKILL §3.7 聚合层章节 + 版本历史、README 版本治理表修正、RUNBOOK 补 8 脚本 CLI 速查、design-decisions 决策 19–22、新建 `references/aggregation-schema.md`（聚合层 Schema 真源）；⑧版本号解耦 ADR（决策 22）：skill version=3.0.1 / annotation schema=2.8.0 / aggregation schema=3.0.0 三域独立。**验收**：两本书全链路重跑 + 内容断言 ALL PASS（占位 0 / 空 tense 0 / 空 participants ≤5% 且均为 frontmatter/过渡段 / PER>0 / trajectory 非空 / plot_structure 非空）。 |
+| **3.0.0** | 2026-09-04 | **生成器就绪（决策 21）**：新增 `scripts/aggregation/causal_graph.py`（因果链，D01 校验端过滤）、`object_chains.py`（物件链，D15 意象聚类）、`story_graph.py`（五子图谱合并）、`adapters.py`（text2story/YARN/NCP 三适配器）。两本书验证通过。 |
+| **2.9.0** | 2026-09-04 | **全局聚合器 MVP（决策 20）**：新增 `scripts/aggregation/`——`entity_resolution.py`（实体消解）、`scene_graph.py`（场景图重建）、`character_arcs.py`（角色弧线）、`story_type_inference.py`（故事类型六维推断）。纯规则零依赖。 |
+| **2.8.0** | 2026-09-04 | **数据修复与管道硬化（决策 19）**：Gate 0 冻结侦查（manifest/contamination/segmentation_version_record）+ R1.0 根因复盘（`docs/rca/data_quality_rca_v28.md`，修正"emotion 空壳行"格式误判）+ Gate 1 数据修复（594 行格式统一：craft→layers.craft、emotion→layers.emotion 直接格式、checkpoint 重建、`_provenance` 全覆盖）+ Gate 2 机械验证（audit_v27.py 0 error）+ Gate 3 D18 补齐（shanghai 92.1%）。schema.md 同步 2.8.0（craft/emotion 格式统一 + `_provenance` 全局元字段）。审计脚本归档 `scripts/audit/archive_v28/`。 |
 | **2.7.0** | 2026-09-04 | 新增 **D19 情感分析**（P4 Pass，Layer 2.5 语义扩展）：独立 `emotion.jsonl` + emotion-output 模板 + `emotion-lexicon.md`（44 词，D19 枚举真源例外）；schema/validate/checkpoint/merge/render 全接入；P4 触发条件四则。L1–L3 schema 不变，旧产物零迁移（决策 17）。**同日工程化修复轮（决策 18，未升版）**：annotate_segment 新增 `--input-json` 非交互注入 + `--all-pending` 批量驱动 + 校验失败自动 span 修复重试 ≤3 次（兑现承诺）+ 幂等 upsert 落盘；span 定位抽公共模块 `span_locator.py`（fill_spans 复用）；新增 `select_segments.py`（段采样分层）与 `run_pipeline.py`（Phase 1–5 一体化 + --plan/--resume）；SKILL.md 定位改写（scripts=核心组件）+ 瘦身；新增 `docs/RUNBOOK.md`。 |
 | **2.6.0** | 2026-09-04 | 真实全本（月亮与六便士）打补丁 + 小增强（v2.5.1 合入）：①Windows GBK 打印崩溃修复；②checkpoint 加载路径错位修复；③cross_segment 完成自动回写标记；④MD 报告补 L2/L3 摘要；⑤HTML 报告补 D04 极性列；⑥D04.polarity 必填（旧产物豁免）；⑦cross_segment 锚点清洗 + `--preserve-curated`；⑧checkpoint.py 加 `--dir`；⑨新增 `fill_spans.py`；⑩全脚本升 2.6.0。 |
 | 2.5.0 | 2026-09-04 | 3→4 层架构大升级 + 7 项 P0 bug 修复（ID 碰撞/坐标漂移/无边界截断/frontmatter 丢弃/L4 占位/merge 字段/segment_id 前缀）+ schema 单一真源 + 4 层模板 + checkpoint 状态机 + span 段内相对偏移。 |
 | ≤2.3.0 | 2026-08-31~09-03 | 早期单片段版。2.2.0（12 维含 D02/D03）**已废弃**。 |
 
-> 版本号 SemVer：主版本=Schema 不兼容；次版本=新增枚举/可选维度（宽松兼容）；修订号=bugfix/锚点校准不改字段。**修复轮不升版本**——frontmatter/schema 保持 2.7.0，四者一致不破坏；本修复轮内容随下个 feature 版本正式记录。
+> 版本号（决策 22 解耦后）：**skill version** SemVer 主版本=能力不兼容；次版本=新增能力；修订号=修复轮。**annotation schema_version** 独立演进（当前 2.8.0）。**aggregation schema_version** 独立演进（当前 3.0.0）。三者解耦，各自域内一致。
 
 ---
 
-*精读批注 Skill v2.7 — "先验证，再声称；每段每层落盘；二阶段跨段；四层合一，情感入轨。从『规格正确』走向『实现可运行』。"*
+*精读批注 Skill v3.0.1 — "先验证，再声称；每段每层落盘；二阶段跨段；四层合一，情感入轨；全局聚合，图谱拼图。从『规格正确』走向『实现可运行』。"*

@@ -308,7 +308,8 @@ def main() -> int:
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "causal_graph": {
-            "nodes": list(set(
+            # v3.0.1 修复（T-029 P2-3）：sorted(set(...)) 消除 PYTHONHASHSEED 顺序漂移
+            "nodes": sorted(set(
                 [e["source"]["segment_id"] for e in edges] +
                 [e["target"]["segment_id"] for e in edges]
             )),

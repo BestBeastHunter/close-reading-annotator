@@ -165,7 +165,8 @@ def build_object_chains(clusters: dict[str, list[dict]], min_occurrences: int = 
         primary_type = type_counts.most_common(1)[0][0]
 
         # 确定 cluster 标签（如果有）
-        cluster_labels = list(set(i["cluster"] for i in items_sorted if i.get("cluster")))
+        # v3.0.1 修复（T-029 P2-3）：sorted(set(...)) 消除 PYTHONHASHSEED 顺序漂移
+        cluster_labels = sorted(set(i["cluster"] for i in items_sorted if i.get("cluster")))
 
         # 生命周期
         first_appearance = items_sorted[0]
@@ -173,10 +174,11 @@ def build_object_chains(clusters: dict[str, list[dict]], min_occurrences: int = 
 
         # 出现段列表
         segments = [i["segment_id"] for i in items_sorted]
-        chapters = list(set(i["chapter"] for i in items_sorted if i.get("chapter")))
+        # v3.0.1 修复（T-029 P2-3）：sorted(set(...)) 消除顺序漂移
+        chapters = sorted(set(i["chapter"] for i in items_sorted if i.get("chapter")))
 
         # 语义变化检测（简单：检查 text 是否有变化）
-        unique_texts = list(set(i["text"] for i in items_sorted))
+        unique_texts = sorted(set(i["text"] for i in items_sorted))
         has_semantic_shift = len(unique_texts) > 1
 
         chain = {

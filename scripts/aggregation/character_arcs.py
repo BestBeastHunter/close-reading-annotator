@@ -32,7 +32,7 @@ try:
 except Exception:
     pass
 
-SCHEMA_VERSION = "2.9.0"
+SCHEMA_VERSION = "3.0.0"
 
 # 情绪极性映射
 POLARITY_SCORE = {
@@ -122,16 +122,24 @@ def extract_structure_data(structure_rows: list[dict]) -> dict[str, dict]:
 def find_entity_segments(entity: dict, segments: list[dict]) -> list[str]:
     """
     找出实体出现的所有段。
-    优先用 entity_graph 中的 mentions_sample，否则用别名在原文中匹配。
+    优先用 entity_graph 的完整 segment_ids（v3.0.1 新增），
+    否则用 mentions_sample，采样不足时用别名在原文中匹配。
     """
+    # v3.0.1 修复（T-029 P1-2 + P2-1）：完整段集合优先——不再依赖截断的 mentions_sample
+    full_ids = entity.get("segment_ids")
+    if full_ids:
+        return sorted(full_ids, key=get_segment_index)
+
     seg_ids = set()
     # 从 mentions_sample 中提取
     for mention in entity.get("mentions_sample", []):
         sid = mention.get("segment_id")
         if sid:
             seg_ids.add(sid)
-    # 如果 mentions_sample 太少（只保留了前20条），用别名在原文中匹配
-    if len(seg_ids) < entity.get("segment_count", 0) * 0.5:
+    # 采样未覆盖全部 segment_count → 用别名在原文中匹配
+    # （阈值修正：原实现 `< segment_count * 0.5` 会让 segment_count≤40 的中等角色
+    #  20 条采样即超半数而不回退 → 静默漏段 + coverage_rate 虚高）
+    if len(seg_ids) < entity.get("segment_count", 0):
         aliases = [entity["canonical_name"]] + entity.get("aliases", [])
         for seg in segments:
             text = seg.get("text_span", {}).get("text", "")

@@ -38,7 +38,7 @@ try:
 except Exception:
     pass
 
-SCHEMA_VERSION = "2.9.0"
+SCHEMA_VERSION = "3.0.0"
 
 # 中文代词（按性别分类）
 PRONOUNS_MALE = {"他", "他自己", "他俩", "他们", "他们俩", "这位先生", "那男人", "这男人"}
@@ -412,6 +412,11 @@ def main() -> int:
             "first_segment": seg_ids[0] if seg_ids else None,
             "last_segment": seg_ids[-1] if seg_ids else None,
             "segment_count": len(seg_ids),
+            # v3.0.1 修复（T-029 P1-2）：输出完整段集合 segment_ids——
+            # 此前下游 scene_graph/character_arcs 只能拿到截断的 mentions_sample（前20条），
+            # 主角采样全落前段导致后半本书场景 characters_present 为空；
+            # 完整段集合是 O(segment_count) 个短字符串，文件体积可控。
+            "segment_ids": seg_ids,
             "occurrence_count": len(mentions),
             "proper_noun_count": len(proper_noun_mentions),
             "pronoun_count": len(mentions) - len(proper_noun_mentions),

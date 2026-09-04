@@ -76,7 +76,7 @@ from validate_output import (  # noqa: E402
     _call_validator,
 )
 
-SCHEMA_VERSION = "2.7.0"
+SCHEMA_VERSION = "2.8.0"
 
 ALL_LAYERS = ["structure", "interpretation", "craft", "emotion"]
 
