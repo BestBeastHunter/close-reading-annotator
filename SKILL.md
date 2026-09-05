@@ -1,19 +1,19 @@
 ---
 name: close-reading-annotator
-version: 3.4.0
+version: 3.5.0
 description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v3.4.0
+# 四层精读批注 Skill v3.5.0
 
 对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
 **核心原则**：每段每层独立落盘 → 断点续跑 → Layer 4 二阶段执行 → 四层合并输出 → 聚合层拼图出全局叙事结构。
 
 > **版本声明（决策 22：三版本域解耦）**：
-> - **skill version** = `3.4.0`（本文件 frontmatter = README = RUNBOOK）。v3.4 前置双模块（ADR-014，T-033）：数据质量看门狗 + 计算文学分析；v3.3 DLUT 完整引入（ADR-013，T-032）；v3.2 一致性基础设施（ADR-012，T-031）；v3.1 词表手术（ADR-011，T-030）。
+> - **skill version** = `3.5.0`（本文件 frontmatter = README = RUNBOOK）。v3.5 精细化切分器/重排（ADR-014，T-034）：场景边界判断 Prompt（LumberChunker 思想 Skill 化）+ reshape_segments.py 后处理重排；v3.4 前置双模块（ADR-014，T-033）：数据质量看门狗 + 计算文学分析；v3.3 DLUT 完整引入（ADR-013，T-032）；v3.2 一致性基础设施（ADR-012，T-031）；v3.1 词表手术（ADR-011，T-030）。
 > - **annotation schema_version** = `2.9.0`（`references/schema.md` §一 = 批注 JSON `schema_version` = annotate_segment.py / examples/llm_wrapper.py）。**注意**：批注数据 schema 与 skill 版本解耦，skill 升 3.x 不代表批注字段变更。
 > - **aggregation schema_version** = `3.0.0`（`references/aggregation-schema.md` = `scripts/aggregation/*.py`）。
 > - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0 / 2.8.0 / 2.9.0`（旧产物版本分支豁免，不迁移）。
@@ -104,6 +104,90 @@ python scripts/preprocess.py --input <原文文件路径> --doc-id <doc_id> --ou
 7. 坐标经 `_assert_text_slice_matches` 自校验（漂移=抛异常，不产出损坏数据）
 
 **验证**：`python scripts/checkpoint.py status --doc-id <doc_id>`，total_segments 与 segments.jsonl 行数一致。
+
+### 3.1.5 Phase 1.5：精细化切分重排（v3.5 新增，LumberChunker 思想 Skill 化）
+
+> **定位**：Phase 1 粗切分按章节+2000 token 机械切分，可能把同一场景切成多段、或把不同场景塞进同一段。本阶段用 Agent 自身 LLM 做**场景边界判断**（只标记不切分），再由纯脚本 `reshape_segments.py` 按边界点从原文按字符位置重切，输出场景级 final_segments。
+
+**四阶段流程**：
+```
+Phase 1 粗切分（preprocess.py）→ Phase 1.5a 场景边界判断（Agent LLM）→ Phase 1.5b 后处理重排（reshape_segments.py）→ Phase 2 精细批注（annotate_segment.py，不变）
+```
+
+**Phase 1.5a：场景边界判断（Agent 用自身 LLM 执行，输出 scene_boundary.json）**
+
+对每对相邻 segment（seg_N, seg_N+1），判断两者之间是否是**场景边界**。判断维度：
+
+| 维度 | 边界信号 |
+|------|---------|
+| 地点变化 | 场景从 A 地转到 B 地（客厅→医院、地球→火星） |
+| 时间跳跃 | 时间从 A 时刻跳到 B 时刻（白天→夜晚、童年→成年） |
+| 视角切换 | 叙述视角从角色 A 转到角色 B，或第一人称↔第三人称 |
+| 主题断裂 | 叙事主题/情绪基调发生明显转折（喜剧→悲剧、平静→紧张） |
+
+**判断 Prompt（逐对执行，输出严格 JSON）**：
+
+```
+你是叙事场景边界检测专家。请判断以下两个相邻叙事段落之间是否存在"场景边界"（即两者是否属于同一个连续场景）。
+
+【段落 N】{seg_N.text_span.text[:500]}
+
+【段落 N+1】{seg_N+1.text_span.text[:500]}
+
+判断维度（满足任一即视为场景边界）：
+1. 地点变化：场景从一个地点转到另一个地点
+2. 时间跳跃：时间发生明显跳跃（非连续流逝）
+3. 视角切换：叙述视角或聚焦人物发生切换
+4. 主题断裂：叙事主题或情绪基调发生明显转折
+
+输出 JSON（严格格式，不要额外文字）：
+{
+  "between_segment": "{seg_N.segment_id}",
+  "and_segment": "{seg_N+1.segment_id}",
+  "is_scene_boundary": true/false,
+  "boundary_type": "location_change" | "time_jump" | "pov_switch" | "thematic_break" | "continuous",
+  "confidence": 0.0-1.0,
+  "reason": "一句话说明判断依据（is_scene_boundary=false 时写'同一场景，连续叙事'）"
+}
+```
+
+将所有判断结果收集为 `scene_boundary.json`：
+```json
+{
+  "schema_version": "3.5.0",
+  "document_id": "{doc_id}",
+  "boundaries": [ {上述每个判断结果}, ... ]
+}
+```
+
+> **注意**：只标记边界，不实际切分。章节边界（chapter 变化）由 reshape_segments.py 自动识别为场景边界，无需 LLM 判断。若不执行本阶段（跳过场景边界判断），reshape_segments.py 仅按章节边界合并，仍可产出更粗粒度的场景级 segments。
+
+**Phase 1.5b：后处理重排（纯脚本 reshape_segments.py）**
+
+```bash
+python scripts/reshape_segments.py \
+  --segments <out>/{doc_id}_segments.jsonl \
+  --boundaries <out>/{doc_id}_scene_boundary.json \
+  --original <原文文件路径> \
+  --doc-id <doc_id> \
+  --output-dir <out>/
+```
+
+**产出**：
+- `{doc_id}_final_segments.jsonl`——场景级 segments（segment_id=`{doc_id}_scene_{NNN}`，含 `merged_from_count` 标记合并了多少粗切段）
+- `{doc_id}_segment_id_mapping.json`——新旧 ID 映射表（哪些粗切 segment 合并成了哪个场景 segment，含字符区间）
+
+**重排规则**（优先级从高到低）：
+1. 章节边界（chapter/section_type 变化）→ 自动场景边界
+2. scene_boundary.json 中 `is_scene_boundary=true` → 场景边界
+3. 其余相邻段 → 合并到同一场景（默认连续）
+
+**关键特性**：
+- 按 `start_char`/`end_char` 从原文重新截取文本（坐标自校验，漂移=警告）
+- 场景级 segment 是"完整场景段落"但不一定是"语义原子"（场景内可有多个叙事单元，靠 Phase 2 LLM 自己识别）
+- 新旧 ID 映射保证下游可追溯（批注产物中的 segment_id 可用映射表回溯到原始粗切段）
+
+**Phase 2 使用重排结果**：将 `annotate_segment.py` 的 `--segments` 参数指向 `{doc_id}_final_segments.jsonl` 即可，其余流程不变。
 
 ### 3.2 Phase 2：逐片段批注（核心循环）
 
@@ -354,6 +438,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 | **每层输出模板（可直接填充）** | `templates/*-output.json` | 避免漏字段 |
 | **数据质量看门狗（粗切前硬门槛）** | `scripts/quality_gate.py` | 对原始文本做五维检测（中文占比/引号闭合/乱码/段落结构/重复性），产出 quality_report.json；**粗切分前必须跑一遍**，fail 项需修复后再进入 preprocess（v3.4 新增） |
 | **计算文学分析（逐 segment 量化指标）** | `scripts/quant_analyzer.py` | 重排后、批注前逐 segment 计算句长/TTR/词性/对话占比/标点/情感词频（DLUT 子集）/五感密度，产出 quant_metrics.jsonl，作为 LLM 批注的硬证据注入；jieba 可选，缺失自动降级（v3.4 新增） |
+| **精细化切分重排（场景级 segments）** | `scripts/reshape_segments.py` | Phase 1.5 后处理：读粗切 segments + scene_boundary.json（Agent 场景边界判断）+ 原始文本 → final_segments.jsonl（场景级，scene_NNN 编号）+ 新旧 ID 映射表；按字符区间从原文重切，章节边界自动识别（v3.5 新增） |
 | **同义词归一化器（自由词→枚举词保守映射）** | `scripts/term_normalizer.py` | 批量落盘前跑一遍纠偏（v3.1 新增） |
 | **词表演化工具（DLUT/NRC 对照 + 经验回写）** | `scripts/lexicon_crosscheck.py` / `scripts/collect_lexicon_candidates.py` | **仅词表维护者（Owner）在词表演化时使用**；一般批注使用者开箱即用、无需下载任何外部数据——crosscheck 默认读仓库内 DLUT 清洗子集 `references/lexicon-dlut-subset.json`（v3.3 新增） |
 | **DLUT 三级映射表（21 小类→8 基元→D19 词位）** | `references/emotion-taxonomy.md` | 词表演化归约裁决（v3.3 新增；emotion-lexicon §四.b 完整版） |
@@ -373,6 +458,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 | 版本 | 日期 | 变化 |
 |------|------|------|
 | **3.3.0** | 2026-09-05 | **DLUT 完整引入（ADR-013，T-032）**：①新建 `scripts/build_dlut_subset.py`——从本地全量 xlsx（27,465 词）按文学精读适配规则清洗（词性 adj/verb/noun/adv + 词长 ≤2 + 义项合并），生成 `references/lexicon-dlut-subset.json`（9,924 词，含来源/许可/引用声明，随包分发，D19 命中率 33/50 与全量一致）；②新建 `references/emotion-taxonomy.md`——DLUT 21 小类 → Plutchik 8 基元 → D19 词位三级映射表（NN/NM 双认 + NG 归类注记，词表演化归约裁决表）；③`scripts/lexicon_crosscheck.py` 升级 v3.3——**默认读仓库内子集**（--subset），子集缺失回退本地全量 xlsx（--dlut），NRC 文件缺失自动跳过抽样（降级不报错），一般使用者无需任何外部数据即可跑词表演化工具；④README §八.3 重写（子集已分发 + 维护者才需全量 + NRC 仍禁再分发）。 |
+| **3.5.0** | 2026-09-05 | **精细化切分器/重排（ADR-014，T-034）**：①SKILL.md 新增 Phase 1.5 场景边界判断 Prompt（LumberChunker 思想 Skill 化，Agent 用自身 LLM 判断相邻段是否同场景，四维度：地点变化/时间跳跃/视角切换/主题断裂，输出 scene_boundary.json 只标记不切）；②新建 `scripts/reshape_segments.py`——后处理切分重排（读 segments_rough + scene_boundary + 原始文本 → final_segments.jsonl + segment_id_mapping.json，按 start_char/end_char 从原文按字符区间重切，重新编号 scene_NNN，建立新旧 ID 映射，坐标自校验）；③重排规则优先级：章节边界自动切 > scene_boundary 显式标记 > 默认合并；④annotation/aggregation schema 不变（纯预处理增强，Phase 2 annotate_segment 不变，只需 --segments 指向 final_segments）。 |
 | **3.4.0** | 2026-09-05 | **前置双模块（ADR-014，T-033）**：①新建 `scripts/quality_gate.py`——数据质量看门狗（粗切前硬门槛）：中文字符占比/引号闭合率/乱码检测/段落结构稳定性/重复性检测五维评分，产出 quality_report.json（pass/warn/fail + 修复建议），支持 --fail-on-error CI 集成；②新建 `scripts/quant_analyzer.py`——计算文学分析（重排后批注前，逐 segment 独立）：句长/TTR/词性占比/对话占比/标点密度/情感词频（复用 DLUT 子集，pol 编码 1=褒2=贬0=中）/五感密度（视觉/听觉/触觉/嗅觉/味觉内置词表），产出 quant_metrics.jsonl；jieba 为可选依赖，缺失时自动降级为 DLUT 子集最大正向匹配（2 字词优先）+ 子集词性反查；③annotation schema 不变（2.9.0），aggregation schema 不变（3.0.0）——纯前置脚本，零 schema 变更。 |
 | **3.2.0** | 2026-09-05 | **一致性基础设施（ADR-012，T-031）**：①新建 `scripts/lexicon_crosscheck.py`——DLUT 21 小类 / NRC 中文版数据**本地化对照**（数据不进 git，NRC 许可禁再分发）：D19 覆盖度检查 + 候选词生成（首跑：D19 50 词命中 33/66%，真实缺口小类 NH/NI/NL，NN=数据版"贬责"代码实证修正文献 NM）；②新建 `scripts/collect_lexicon_candidates.py`——WikiSkill 经验回写管道（arXiv:2608.27454）：产物自由情感词 ≥3 次 → 候选，兑现 emotion-lexicon §四协议（首跑：两本书 0 自由词=语料与 50 词表完全一致）；③Trace2Skill SoP（arXiv:2603.25158）：collect `--sop` 输出 RUNBOOK 校验错误修复表自动行（已并入 RUNBOOK §3）；④`examples/llm_wrapper.py` 新增 `build_enum_schema()` + `--show-schema`（D04 20 词 / D19 50 词 JSON Schema 枚举约束，OpenAI 兼容 response_format 接入点）；⑤emotion-lexicon.md 新增 §四.b「基元归约审查协议」——DLUT 21 小类作中文归约中间层（只引分类体系不引数据全文）+ README §八.3 数据获取与许可指引。 |
 | **3.1.0** | 2026-09-05 | **词表手术与一致性加固（ADR-011，T-030）**：①D04.core 手术——删 4 非情绪词（尊严/背叛/贪婪/宽恕）→ 补 4 高频情绪（羞耻/惊讶/渴望/厌恶），annotation schema 2.8.0→2.9.0（新增枚举=次版本），validate 对 2.8.0 及更早旧词版本分支豁免；②D19 44→50——补 羞耻/渴望/嫉妒/迷茫/感动/得意，4 姿态复合词标注使用条件（emotion-lexicon.md v2）；③新建 `references/function-anchors.md`（D01 每词 2 示例 + 边界判定表，依据 Freytag 五幕 + Labov 六要素）；④新建 `scripts/term_normalizer.py` 同义词归一化（自由词→枚举词保守映射）；⑤全链同步（schema.md / emotion-anchors polarity 映射 / validate_output / templates / README-RUNBOOK 索引）+ SKILL.md 瘦身（§9 安装移 README）；⑥词库选型参照 NRC EmoLex（Plutchik 8 基元）与大连理工中文情感本体库（7 大类 21 小类）完成交叉验证。**验收**：py_compile 全绿 + 2.8.0 旧产物（含"尊严"）校验版本豁免通过 + 2.9.0 新词表校验断言通过 + 词表 grep 同步一致。 |

@@ -2,7 +2,7 @@
 
 > **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
 > 完整 schema / 枚举 / 设计决策见 `references/schema.md`（批注层）、`references/aggregation-schema.md`（聚合层）、`SKILL.md`、工作区 `docs/design-decisions.md`。
-> 版本：skill v3.4.0 / annotation schema 2.9.0 / aggregation schema 3.0.0（决策 22 三域解耦）
+> 版本：skill v3.5.0 / annotation schema 2.9.0 / aggregation schema 3.0.0（决策 22 三域解耦）
 
 ---
 
@@ -21,13 +21,24 @@ python $SKILL/scripts/quality_gate.py --input book.txt --out $OUT/quality_report
 # Phase 1：切分
 python $SKILL/scripts/preprocess.py --input book.txt --doc-id $DOC --output-dir $OUT
 
+# Phase 1.25：精细化切分重排（v3.5 新增，可选但推荐；冒烟测试可跳过）
+# 步骤A：Agent 用自身 LLM 逐对判断相邻段场景边界，输出 scene_boundary.json（Prompt 见 SKILL.md §3.1.5）
+# 步骤B：重排脚本按边界点从原文重切，输出场景级 final_segments
+python $SKILL/scripts/reshape_segments.py \
+    --segments $OUT/${DOC}_segments.jsonl \
+    --boundaries $OUT/${DOC}_scene_boundary.json \
+    --original book.txt \
+    --doc-id $DOC --output-dir $OUT
+# 产出 ${DOC}_final_segments.jsonl（场景级）+ ${DOC}_segment_id_mapping.json（新旧ID映射）
+# 跳过本阶段则后续用 ${DOC}_segments.jsonl（粗切）即可
+
 # Phase 1.5：计算文学分析（v3.4 新增，重排后/批注前，逐 segment 量化指标）
-python $SKILL/scripts/quant_analyzer.py --segments $OUT/${DOC}_segments.jsonl --out $OUT/${DOC}_quant_metrics.jsonl
+python $SKILL/scripts/quant_analyzer.py --segments $OUT/${DOC}_final_segments.jsonl --out $OUT/${DOC}_quant_metrics.jsonl
 # 产出可注入 annotate_segment 的 Prompt 作为 LLM 批注的硬证据
 
 # Phase 2：全自动批量批注（用官方 mock wrapper 跑通链路，structure 层）
 python $SKILL/scripts/annotate_segment.py \
-    --segments $OUT/${DOC}_segments.jsonl \
+    --segments $OUT/${DOC}_final_segments.jsonl \
     --doc-id $DOC --output-dir $OUT \
     --checkpoint $OUT/${DOC}_checkpoint.json \
     --layers structure --all-pending \
@@ -140,6 +151,7 @@ python scripts/run_pipeline.py --input <原文.txt> --doc-id <doc_id> --output-d
 | `build_dlut_subset.py`（v3.3） | 仅维护者：本地 DLUT 全量 xlsx → 清洗子集 `references/lexicon-dlut-subset.json`（`--dlut --out`） |
 | `quality_gate.py`（v3.4） | **数据质量看门狗（Phase 0，粗切前必须跑）**：五维检测（中文占比/引号闭合/乱码/段落结构/重复性），产出 quality_report.json（pass/warn/fail + 修复建议）。`--input <txt|jsonl> --out <report.json>`；`--fail-on-error` CI 用 |
 | `quant_analyzer.py`（v3.4） | **计算文学分析（Phase 1.5，批注前）**：逐 segment 计算句长/TTR/词性/对话占比/标点/情感词频（DLUT 子集）/五感密度，产出 quant_metrics.jsonl。`--segments <segments.jsonl> --out <quant.jsonl>`；jieba 可选，缺失自动降级为 DLUT 最大正向匹配 |
+| `reshape_segments.py`（v3.5） | **精细化切分重排（Phase 1.25，可选）**：读粗切 segments + scene_boundary.json（Agent 场景边界判断）+ 原始文本 → final_segments.jsonl（场景级，scene_NNN 编号）+ 新旧 ID 映射表。`--segments --boundaries --original --doc-id --output-dir`；章节边界自动识别，无 boundary 文件时仅按章节合并 |
 
 ### 2.7 aggregation/ 聚合层 8 脚本（v2.9/v3.0，批注完成后运行）
 
