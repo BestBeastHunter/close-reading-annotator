@@ -35,6 +35,7 @@ examples/llm_wrapper.py — --llm-cmd 协议官方参考模板（决策 18 遗�
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
@@ -51,6 +52,118 @@ for _s in (sys.stdout, sys.stderr):
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent  # skill 包根
 TEMPLATES_DIR = PACKAGE_ROOT / "templates"
 SCHEMA_VERSION = "2.9.0"
+
+# D04.core 枚举（v3.1 / ADR-011 手术后的 20 词，与 validate_output.py D04_CORE_VALUES 同步；
+# 改词表 = 先改 references/schema.md 再同步本文件与 validate_output.py）
+D04_CORE_VALUES = [
+    "平静", "压抑", "焦虑", "悲伤", "愤怒", "恐惧", "喜悦", "希望", "绝望",
+    "孤独", "信任", "屈辱", "嫉妒", "复仇", "悬疑", "释然",
+    "羞耻", "惊讶", "渴望", "厌恶",
+]
+
+# D19 词表真源（references/emotion-lexicon.md）——动态解析，避免二次硬编码
+D19_LEXICON = PACKAGE_ROOT / "references" / "emotion-lexicon.md"
+
+
+def load_d19_enums() -> list[str]:
+    """从 emotion-lexicon.md 词表全量解析 D19 枚举词（与 validate 白名单同源）。"""
+    enums: list[str] = []
+    with io.open(D19_LEXICON, encoding="utf-8") as f:
+        lines = f.readlines()
+    in_table = False
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith("## 二、词表全量"):
+            in_table = True
+            continue
+        if in_table:
+            if s.startswith("##") and "词表全量" not in s:
+                break
+            if s.startswith("| **") and "|" in s[3:]:
+                word = s.split("|")[1].strip().strip("**").strip()
+                if word:
+                    enums.append(word)
+    return enums
+
+
+def build_enum_schema(layer: str) -> dict | None:
+    """构建该层的 JSON Schema 枚举约束（OpenAI 兼容 response_format json_schema 风格）。
+
+    返回 None 表示该层无枚举约束（structure 的 D01/D04/D07/D10/D11 为多层枚举，
+    此处只覆盖 D04；完整约束见 references/schema.md —— 结构化约束是"尽力而为"
+    的工程手段，最终裁决仍以 validate_output.py 为准）。
+    """
+    if layer == "structure":
+        return {
+            "type": "object",
+            "properties": {
+                "layers": {
+                    "type": "object",
+                    "properties": {
+                        "structure": {
+                            "type": "object",
+                            "properties": {
+                                "D04": {
+                                    "type": "object",
+                                    "properties": {
+                                        "core": {
+                                            "type": "string",
+                                            "enum": D04_CORE_VALUES,
+                                            "description": "D04.core 段落氛围情绪（20 词枚举）",
+                                        }
+                                    },
+                                    "required": ["core"],
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+        }
+    if layer == "emotion":
+        enums = load_d19_enums()
+        return {
+            "type": "object",
+            "properties": {
+                "layers": {
+                    "type": "object",
+                    "properties": {
+                        "emotion": {
+                            "type": "object",
+                            "properties": {
+                                "primary": {
+                                    "type": "object",
+                                    "properties": {
+                                        "emotion": {
+                                            "type": "string",
+                                            "enum": enums,
+                                            "description": "D19.primary.emotion 精细情感词（当前 "
+                                                           f"{len(enums)} 词枚举）",
+                                        }
+                                    },
+                                    "required": ["emotion"],
+                                },
+                                "secondary": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "emotion": {
+                                                "type": "string",
+                                                "enum": enums,
+                                            }
+                                        },
+                                        "required": ["emotion"],
+                                    },
+                                },
+                            },
+                            "required": ["primary"],
+                        }
+                    },
+                }
+            },
+        }
+    return None
 
 
 # ---------------- 批注行构造（从模板骨架填充段级字段） ----------------
@@ -108,6 +221,14 @@ def _call_model(payload: dict) -> dict:
       3. 调你的 API（OpenAI 兼容 /api/chat 可直接用 urllib，零依赖）；
       4. 解析返回 JSON 并 return。
 
+    结构化枚举约束（v3.2 / T-031-④，ADR-012）：
+      schema = build_enum_schema(layer)   # D04 20 词 / D19 50 词强制枚举
+      若你的 API 支持 response_format（OpenAI 兼容 json_schema / function calling），
+      将 {"type": "json_schema", "json_schema": {"name": "annotation_row",
+             "strict": True, "schema": schema}} 作为请求体 response_format 字段传入，
+      可从生成端约束枚举取值；不支持该特性的 API 则退化为 prompt 内联约束。
+      命令行查看各层约束：python examples/llm_wrapper.py --show-schema structure|emotion
+
     未接入前：本函数不直达，mock 模式由 main() 拦截（structure），
     其余层走到这里打印指引后以非 0 退出，annotate 会记为 failed。
     """
@@ -124,6 +245,19 @@ def _call_model(payload: dict) -> dict:
 # ---------------- main ----------------
 
 def main() -> int:
+    # --show-schema：打印某层（或 all）的 JSON Schema 枚举约束，便于对接 API
+    if "--show-schema" in sys.argv[1:]:
+        idx = sys.argv.index("--show-schema")
+        target = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else "all"
+        layers = ["structure", "emotion"] if target == "all" else [target]
+        for lyr in layers:
+            schema = build_enum_schema(lyr)
+            if schema is None:
+                print(f"[{lyr}] 无枚举约束", file=sys.stderr)
+                continue
+            print(f"===== {lyr} 枚举约束（{json.dumps(schema, ensure_ascii=False)}）")
+        return 0
+
     mock = "--mock" in sys.argv[1:]
     raw = sys.stdin.read()
     if not raw.strip():

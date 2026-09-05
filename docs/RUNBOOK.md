@@ -127,6 +127,8 @@ python scripts/run_pipeline.py --input <原文.txt> --doc-id <doc_id> --output-d
 | `fill_spans.py` | 存量 craft 产物 span 回补（决策 18 后生成期已自动修复，此脚本仅用于旧产物迁移） |
 | `export_dataset.py` | 训练数据导出脱敏（版权合规） |
 | `span_locator.py` | 公共模块：`text.find` 定位 + 相似度回算（annotate_segment / fill_spans 共用） |
+| `lexicon_crosscheck.py`（v3.2） | DLUT 21 小类 / NRC 中文版 ↔ D19 覆盖度对照 + 候选词生成（`--dlut --nrc --out`；数据本地放置，见 README 八） |
+| `collect_lexicon_candidates.py`（v3.2） | WikiSkill 经验回写：产物自由情感词 ≥3 次 → 候选（`--dir` / `--files`；`--sop` 输出 RUNBOOK 修复表行） |
 
 ### 2.7 aggregation/ 聚合层 8 脚本（v2.9/v3.0，批注完成后运行）
 
@@ -185,6 +187,7 @@ python $AGG/adapters.py --story-graph $OUT/aggregation/${DOC}_story_graph.json \
 | `D19.emotion 不在 50 词白名单` | 情感词自造 | 查 `references/emotion-lexicon.md`（50 词），选最接近词 + expression.note 说明 |
 | `key_phrases 不是原文子串` | D19 表达短语不在原文里 | 每项必须是 `text_span.text` 的精确子串 |
 | `schema_version 不在允许集合` | 版本号错 | 当前允许 2.6.0 / 2.7.0 |
+| D19 用了白名单外词（自动生成行） | 自由情感词，validate 拒收 | 跑 `scripts/collect_lexicon_candidates.py --dir <产物目录>`——**经验回写管道（WikiSkill，T-031-③）**：对频率 ≥3 的自由词，normalizer 有映射 → 替换为既有词；无映射 → 记入候选，按词表演化协议随版本入表。生成行会追加到本表（来源列=collect_lexicon_candidates 经验回写） |
 
 ---
 
