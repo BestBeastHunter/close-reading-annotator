@@ -1,17 +1,18 @@
-# references/aggregation-schema.md — 全局聚合层产物 Schema 定义 v3.0.0
+# references/aggregation-schema.md — 全局聚合层产物 Schema 定义 v3.1.0
 
 > **本文件是聚合层产物的唯一真源**（对应审计 P2-12 / 决策 22）。
-> 批注四层 Schema 的真源是 `references/schema.md`（v2.9.0）；聚合层（v2.9/v3.0）产物 Schema 以本文件为准。
-> 聚合脚本 `scripts/aggregation/*.py` 的 `SCHEMA_VERSION` 统一为 `3.0.0`。
+> 批注四层 Schema 的真源是 `references/schema.md`（v2.10.0）；聚合层（v2.9/v3.0/v3.7）产物 Schema 以本文件为准。
+> 聚合脚本 `scripts/aggregation/*.py` 的 `SCHEMA_VERSION`：entity/scene/character/story_type/causal/object/story_graph/adapters = `3.0.0`；narrative_structure = `3.1.0`（v3.7 新增）。
 > 字段以两本实测书（月亮与六便士 / 上海堡垒）的真实产物为基准整理，修订字段必须先改本文件再改脚本。
 
 ---
 
 ## 〇、版本与命名约定
 
-- 聚合产物文件名：`{doc_id}_{entity_graph|scene_graph|character_arcs|story_metadata|causal_graph|object_chains|story_graph}.json`，适配器产物 `{doc_id}_{text2story|yarn|ncp}.json`。
+- 聚合产物文件名：`{doc_id}_{entity_graph|scene_graph|character_arcs|story_metadata|narrative_structure|causal_graph|object_chains|story_graph}.json`，适配器产物 `{doc_id}_{text2story|yarn|ncp}.json`。
 - 所有产物顶层含 `doc_id` / `schema_version` / `generated_at`（ISO8601）。
 - 确定性纪律（v3.0.1）：任何集合转列表必须 `sorted(set(...))`；平票取先出现者——禁止依赖 `set()` 迭代顺序（PYTHONHASHSEED 漂移，审计 P2-3）。
+- **v3.1.0 变更（ADR-014，T-036）**：新增 `narrative_structure.json` 产物（叙事结构分析：弗雷塔格五幕+热奈特聚焦+叙事时间线+救猫咪节拍+叙事层级），由 `scripts/aggregation/narrative_structure.py` 产出。其余 8 个聚合产物 schema 不变（3.0.0）。
 
 ---
 
@@ -221,6 +222,78 @@
 | `plot_structure` | object | scenes 按 primary_function 映射七桶：`{exposition(背景铺垫), inciting_incident(激励事件), rising_action(上升行动), climax(高潮), falling_action(下降行动), resolution(结局), transition(过渡)}`——桶内为场景条目；无对应功能的桶合法为空（数据特性） |
 | `story_metadata` | object | story_graph.story_metadata → `{genre.primary, narrative_style.type, emotion_arc.pattern, pace.type, reader_experience.primary, one_line_summary}` |
 | `statistics` | object | character_count / event_count / setting_count |
+
+---
+
+## 九、narrative_structure.json（叙事结构分析，v3.7 新增 / narrative_structure.py）
+
+> **定位**：基于逐段 structure 批注的全局叙事结构推导，纯规则引擎零 LLM 调用。依赖 v3.6 原子化扩展字段（D08._time_type / D08._narrative_level / D07._narrator_identity），旧产物缺失时自动降级为从 D01/D07/D08 原始字段推断，输出中标注 `derivation_method`。
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `doc_id` / `schema_version` / `generated_at` / `generator` / `total_segments` | 顶层元数据 | schema_version=3.1.0 |
+| `freytag_pyramid` | object | 弗雷塔格五幕结构（见 9.1） |
+| `genette_focalization` | object | 热奈特聚焦分析（见 9.2） |
+| `narrative_timeline` | object | 叙事时间线重建（见 9.3） |
+| `save_the_cat_beats` | object | 救猫咪节拍定位（简化 14 节拍，见 9.4） |
+| `narrative_levels` | object | 叙事层级图（见 9.5） |
+
+### 9.1 freytag_pyramid（弗雷塔格五幕）
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `total_segments` | int | 输入 segment 总数 |
+| `act_ranges` | object | 六幕区间：`exposition` / `inciting_incident` / `rising_action` / `climax` / `falling_action` / `resolution`，每幕含 `start_segment` / `end_segment` / `segment_count_in_range` / `segment_count_labeled` / `percentage` |
+| `key_turning_points` | object | `inciting_incident_segment` / `climax_segment` / `resolution_segment`（首次出现位置） |
+| `missing_acts` | string[] | 缺失的幕（如 `["inciting_incident"]`） |
+| `structure_health` | string | `healthy` / `needs_review`（上升行动占比≥20% 且缺失幕≤1 为 healthy） |
+| `derivation_method` | string | `D01_sequence_mapping + act_transition_points` |
+| `note` | string | 区间按幕转换点定义（非连续块统计）；segment_count_labeled 是该幕标签实际出现次数 |
+
+### 9.2 genette_focalization（热奈特聚焦）
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `dominant_d07_type` | string | 主导 D07 视角类型（如 "第一人称"） |
+| `dominant_focalization` | string | 热奈特聚焦类型：`first_person_focalization` / `second_person_focalization` / `internal_focalization` / `zero_focalization` / `variable_focalization` / `unreliable_focalization` / `external_focalization` |
+| `d07_type_distribution` | object | D07.type 统计分布 |
+| `focalization_switch_count` / `focalization_switch_rate` | int / float | 视角切换次数 / 切换率（switch_count/total） |
+| `complexity` | string | `simple_single_focalization`（主导占比≥95%且无切换）/ `moderate_occasional_shift`（主导占比≥80%且切换率≤10%）/ `complex_multiple_focalization` |
+| `narrator_reliability` | string | `unreliable`（不可靠叙述者占比>10%）/ `reliable_or_not_marked` |
+| `narrator_identity_distribution` / `narrator_identity_count` | object / int | **v3.6 新字段**：叙述者身份分布（仅当 _narrator_identity 填充时存在） |
+| `narrator_identity_note` | string | 旧产物缺失 _narrator_identity 时的降级说明 |
+| `derivation_method` | string | `D07_type_statistics` 或 `D07_type_statistics+_narrator_identity` |
+
+### 9.3 narrative_timeline（叙事时间线）
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `dominant_time_type` | string | 主导时间类型：`linear` / `flashback` / `flashforward` / `analepsis` / `prolepsis` / `unknown` |
+| `time_type_distribution` | object | time_type 统计分布 |
+| `time_structure` | string | `linear_simple`（无非线性且无跳跃）/ `linear_with_occasional_flashback`（非线性占比≤15%且跳跃≤2）/ `complex_nonlinear` |
+| `time_jump_count` / `time_jumps` | int / array | 时间跳跃次数 / 跳跃详情（`from_segment` / `to_segment` / `year_span` / `from_year` / `to_year`，最多 10 条） |
+| `timeline_nodes` | array | 时间线节点列表（每段一个：`segment_index` / `segment_id` / `time_text` / `time_type` / `time_marker{year,season,period,relative}`） |
+| `derivation_method` | string | `_time_type_field`（新字段填充时）/ `D08.time_text_keyword_inference（降级：_time_type 字段未填充）` |
+
+### 9.4 save_the_cat_beats（救猫咪节拍，简化 14 节拍）
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `beats` | array | 14 节拍列表：`opening_image` / `theme_stated` / `setup` / `catalyst` / `debate` / `break_into_two` / `fun_and_games` / `midpoint` / `bad_guys_close_in` / `all_is_lost` / `dark_night_of_soul` / `break_into_three` / `finale` / `final_image`，每拍含 `beat_id` / `beat_name` / `start_segment` / `end_segment` / `percentage_range` / `dominant_d01` / `avg_d05_pace` / `segment_count` |
+| `key_beats_with_strong_signal` | string[] | 关键节拍（catalyst/midpoint/all_is_lost/finale）中区间内存在对应 D01 信号的节拍 ID |
+| `key_beats_total` | int | 关键节拍总数（恒为 4） |
+| `beat_completeness` | float | 关键节拍信号匹配率（0-100%） |
+| `derivation_method` | string | `position_percentage_mapping + D01_signal_verification` |
+| `note` | string | 救猫咪节拍为基于位置百分比的粗略定位，非精确节拍检测；需结合 D01 信号验证 |
+
+### 9.5 narrative_levels（叙事层级图）
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `level_distribution` | object | 叙事层级分布：`"1"`（故事层）/ `"2"`（元叙事）/ `"3+"`（多层嵌套）/ `unknown` |
+| `dominant_level` | string | 主导叙事层级 |
+| `derivation_method` | string | `_narrative_level_field`（新字段填充时）/ `field_not_filled（降级：_narrative_level 未填充，无法分析叙事层级）` |
+| `note` | string | 旧产物缺失 _narrative_level 时的降级说明；建议用 v3.6+ 重新批注后再分析 |
 
 ---
 

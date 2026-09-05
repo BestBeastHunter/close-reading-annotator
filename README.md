@@ -1,9 +1,9 @@
-# 精读批注 Skill v3.6.0
+# 精读批注 Skill v3.7.0
 
 > 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）与**全局聚合层**（实体/场景/角色弧线/故事类型/因果链/物件链/故事图/适配器）。
 > 适合：小说精读、故事拆解、叙事分析、文笔拆解、结构化语料构建。
 > 本仓库即**完整可运行的 Skill 包**——放到 TRAE / Cursor / Claude Code 的 skills 目录即可使用，也支持纯手动模式（把 `SKILL.md` 注入任意大模型）。
-> **版本（决策 22 三域解耦）**：skill_version = `3.6.0` / annotation schema_version = `2.10.0` / aggregation schema_version = `3.0.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`/`2.10.0`。
+> **版本（决策 22 三域解耦）**：skill_version = `3.7.0` / annotation schema_version = `2.10.0` / aggregation schema_version = `3.1.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`/`2.10.0`。
 
 ---
 
@@ -216,11 +216,12 @@ close-reading-annotator/
 │   ├── quant_analyzer.py            # v3.4 新增：Phase 1.5 计算文学分析（逐 segment 量化指标，jieba 可选）
 │   ├── reshape_segments.py          # v3.5 新增：Phase 1.25 精细化切分重排（场景边界判断后按字符区间重切）
 │   │
-│   └── aggregation/                 # v2.9/v3.0 新增：全局聚合器（批注完成后运行，独立后处理）
+│   └── aggregation/                 # v2.9/v3.0/v3.7 新增：全局聚合器（批注完成后运行，独立后处理）
 │       ├── entity_resolution.py     # v2.9 Step 1：实体消解（→ entity_graph.json）
 │       ├── scene_graph.py           # v2.9 Step 2：场景图重建（→ scene_graph.json）
 │       ├── character_arcs.py        # v2.9 Step 3：角色弧线重建（→ character_arcs.json）
 │       ├── story_type_inference.py  # v2.9 Step 4：故事类型推断（→ story_metadata.json）
+│       ├── narrative_structure.py   # v3.7 新增：叙事结构分析（弗雷塔格五幕+热奈特聚焦+叙事时间线+救猫咪节拍 → narrative_structure.json）
 │       ├── causal_graph.py          # v3.0 Step 4：因果链生成（→ causal_graph.json）
 │       ├── object_chains.py         # v3.0 Step 5：物件链追踪（→ object_chains.json）
 │       ├── story_graph.py           # v3.0 Step 6：故事图合并（→ story_graph.json）
@@ -240,14 +241,15 @@ close-reading-annotator/
 
 | 版本域 | 声明点 | 值 |
 |--------|--------|-----|
-| **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.6.0` |
+| **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.7.0` |
 | **annotation schema_version** | `references/schema.md` §一 / 批注 JSON `schema_version` / annotate_segment.py / examples/llm_wrapper.py | `2.9.0` |
-| **aggregation schema_version** | `references/aggregation-schema.md` / `scripts/aggregation/*.py` | `3.0.0` |
+| **aggregation schema_version** | `references/aggregation-schema.md` / `scripts/aggregation/*.py` | `3.1.0` |
 
 > 三域独立演进（决策 22）：skill 能力升级不再强绑定批注字段变更；批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`（旧产物版本分支豁免，不迁移）。
 > 修改批注层枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**。修改聚合层产物字段：**先改 `references/aggregation-schema.md`，再改 `scripts/aggregation/*.py`**。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
 
 主要里程碑：
+- **v3.7.0**：叙事结构分析（T-036，ADR-014）——聚合层第 9 脚本 `narrative_structure.py`：弗雷塔格五幕（从 D01 序列按幕转换点推导，六幕区间+关键转折点+结构健康度）+ 热奈特聚焦（从 D07.type 统计+_narrator_identity，主导聚焦+切换率+复杂度+叙述者可靠性）+ 叙事时间线（从 D08.time+_time_type，时间节点+时间跳跃+时间结构类型，旧产物降级为关键词推断）+ 救猫咪节拍（简化 14 节拍，位置百分比定位+D01 信号验证）+ 叙事层级图（从 D08._narrative_level）。aggregation schema 3.0→3.1。annotation schema 不变（纯聚合新增）
 - **v3.6.0**：原子化扩展字段（T-035，ADR-014）——annotation schema 2.9.0→2.10.0，新增 5 个可选字段：D07._narrator_identity（叙述者身份ID）、D08._time_type（linear/flashback/flashforward/analepsis/prolepsis）、D08._narrative_level（1/2/3+）、D06._techniques（7种信息控制技巧数组）、D12_narrative_mode（热奈特叙事话语模式：场景/概述/停顿/省略/摘要+density+is_summary+is_scene）。全部可选允许 null，旧产物零迁移。schema.md/validate_output.py/templates 全链同步。设计意图：v3.7 叙事结构分析的原子信号前置依赖
 - **v3.5.0**：精细化切分器/重排（T-034，ADR-014）——SKILL.md 新增 Phase 1.5 场景边界判断 Prompt（LumberChunker 思想 Skill 化，四维度：地点/时间/视角/主题）+ `reshape_segments.py` 后处理重排（读粗切 segments + scene_boundary + 原文 → final_segments 场景级 + 新旧 ID 映射，按字符区间重切，章节边界自动识别）。annotation/aggregation schema 不变（纯预处理增强）
 - **v3.4.0**：前置双模块（T-033，ADR-014）——`quality_gate.py` 数据质量看门狗（五维检测：中文占比/引号闭合/乱码/段落结构/重复性，粗切前硬门槛）+ `quant_analyzer.py` 计算文学分析（逐 segment 句长/TTR/词性/对话占比/标点/情感词频(DLUT子集)/五感密度，jieba 可选自动降级）。annotation/aggregation schema 不变（纯前置脚本）
