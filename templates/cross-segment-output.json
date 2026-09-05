@@ -1,6 +1,6 @@
 {
   "_comment": "跨段层（Layer 4 二阶段）输出。每条 cross_ref 必须是双引用：segment_id（位置） + anchor_text（内容锚点），防序号漂移。规则版条目带 _source:'rule'（人工/LLM 核验条目不带），cross_segment.py 重跑默认 --preserve-curated 保留核验条目。请勿输出 _comment。",
-  "schema_version": "2.7.0",
+  "schema_version": "2.9.0",
   "doc_id": "<doc_id>",
   "cross_refs": [
     {

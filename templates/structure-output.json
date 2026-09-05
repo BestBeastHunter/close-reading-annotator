@@ -1,6 +1,6 @@
 {
   "_comment": "结构层（Layer 1）输出模板（v2.5 起每层独立 JSONL）。请勿输出 _comment。请把下文所有占位字段替换为真实值，确保枚举值对齐 references/schema.md。",
-  "schema_version": "2.7.0",
+  "schema_version": "2.9.0",
   "annotation_id": "<doc_id>_seg_<NNNN>_structure_ann_0",
   "document_id": "<doc_id>",
   "segment_id": "<doc_id>_seg_<NNNN>",

@@ -1,6 +1,6 @@
 {
   "_comment": "文笔层（Layer 3）输出模板。v2.8 格式统一：craft 内容在 layers.craft 下。所有条目 text 必须是原文子串，span 必须是段内相对偏移（见 schema.md §3.2）。D18 为角色语言指纹（有对话段必填，无对话段写空数组+null_reasons）。请勿输出 _comment。",
-  "schema_version": "2.8.0",
+  "schema_version": "2.9.0",
   "annotation_id": "<doc_id>_seg_<NNNN>_craft_ann_0",
   "document_id": "<doc_id>",
   "segment_id": "<doc_id>_seg_<NNNN>",
@@ -85,7 +85,7 @@
     "generated_at": "ISO8601"
   },
   "_metadata": {
-    "skill_version": "2.8.0",
+    "skill_version": "2.9.0",
     "layer": "craft",
     "annotation_pass": "P1+P2+P3"
   }

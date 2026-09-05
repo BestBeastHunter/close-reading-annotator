@@ -11,7 +11,7 @@ examples/llm_wrapper.py — --llm-cmd 协议官方参考模板（决策 18 遗�
   stdin   ← 一行动 JSON：
             {"segment": {…segments.jsonl 行…},
              "request_layers": ["structure", …],
-             "schema_version": "2.8.0",
+             "schema_version": "2.9.0",
              "structure_trigger_block": {D01,D04,D10} | null}   # 仅 emotion 层注入
   stdout  → 一行动 JSON（批注行对象）：
             {schema_version, annotation_id, document_id, segment_id, chapter,
@@ -50,7 +50,7 @@ for _s in (sys.stdout, sys.stderr):
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent  # skill 包根
 TEMPLATES_DIR = PACKAGE_ROOT / "templates"
-SCHEMA_VERSION = "2.8.0"
+SCHEMA_VERSION = "2.9.0"
 
 
 # ---------------- 批注行构造（从模板骨架填充段级字段） ----------------

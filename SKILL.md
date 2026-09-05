@@ -1,23 +1,23 @@
 ---
 name: close-reading-annotator
-version: 3.0.1
+version: 3.1.0
 description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v3.0.1
+# 四层精读批注 Skill v3.1.0
 
 对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
 **核心原则**：每段每层独立落盘 → 断点续跑 → Layer 4 二阶段执行 → 四层合并输出 → 聚合层拼图出全局叙事结构。
 
 > **版本声明（决策 22：三版本域解耦）**：
-> - **skill version** = `3.0.1`（本文件 frontmatter = README = RUNBOOK）。聚合层（v2.9/v3.0）与 v3.0.1 修复轮已并入。
-> - **annotation schema_version** = `2.8.0`（`references/schema.md` §一 = 批注 JSON `schema_version` = annotate_segment.py / examples/llm_wrapper.py）。**注意**：批注数据 schema 与 skill 版本解耦，skill 升 3.x 不代表批注字段变更。
+> - **skill version** = `3.1.0`（本文件 frontmatter = README = RUNBOOK）。v3.1 词表手术与一致性加固已并入（ADR-011，T-030）。
+> - **annotation schema_version** = `2.9.0`（`references/schema.md` §一 = 批注 JSON `schema_version` = annotate_segment.py / examples/llm_wrapper.py）。**注意**：批注数据 schema 与 skill 版本解耦，skill 升 3.x 不代表批注字段变更。
 > - **aggregation schema_version** = `3.0.0`（`references/aggregation-schema.md` = `scripts/aggregation/*.py`）。
-> - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0 / 2.8.0`（旧产物版本分支豁免，不迁移）。
-> - **枚举真源**：批注层 `references/schema.md`；聚合层 `references/aggregation-schema.md`（本文件速览 / validate_output.py / templates 均须同步）。**唯一例外**：D19 `emotion` 枚举（44 词）真源为 `references/emotion-lexicon.md`（决策 17 特批）。
+> - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0 / 2.8.0 / 2.9.0`（旧产物版本分支豁免，不迁移）。
+> - **枚举真源**：批注层 `references/schema.md`；聚合层 `references/aggregation-schema.md`（本文件速览 / validate_output.py / templates 均须同步）。**唯一例外**：D19 `emotion` 枚举（50 词）真源为 `references/emotion-lexicon.md`（决策 17 特批）。
 
 ---
 
@@ -70,7 +70,7 @@ license: MIT
 
 ## 3. 工作流（Phase 1–5 + P4）
 
-> **⚠️ 开工前强制**：D04.core 只能从 20 个枚举词里选（见 §4.1），自造词被 validate 直接拒。按 Phase 顺序执行，不要跳步。
+> **⚠️ 开工前强制**：D04.core 只能从 v2.9.0 新 20 个枚举词里选（见 §4.1，2.8.0 及更早旧词仅旧产物合法），自造词被 validate 直接拒。按 Phase 顺序执行，不要跳步。
 
 ### 0）推荐入口：一条命令（决策 18 新增）
 
@@ -174,7 +174,7 @@ python scripts/annotate_segment.py --segments <out>/{doc_id}_segments.jsonl \
     --doc-id <doc_id> --segment <doc_id>_seg_0091 --layers emotion --output-dir <out>
 ```
 
-**关键纪律**：`emotion` 只能选自 `references/emotion-lexicon.md` 44 词（词表没有→选最接近词 + `expression.note` 说明，不造新词）；`target/trigger/arc` 无明确依据一律 null + 顶层 `null_reasons`，**禁止编造情感对象与情感弧**；`expression.key_phrases` 每项必须是原文子串（校验 error 级）。
+**关键纪律**：`emotion` 只能选自 `references/emotion-lexicon.md` 50 词（词表没有→选最接近词 + `expression.note` 说明，不造新词）；`target/trigger/arc` 无明确依据一律 null + 顶层 `null_reasons`，**禁止编造情感对象与情感弧**；`expression.key_phrases` 每项必须是原文子串（校验 error 级）。
 
 ### 3.6 段采样分层策略（决策 18 新增）
 
@@ -244,14 +244,15 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 | 维度 | 类型 | 关键约束 | 易错点 |
 |:--:|:--|:--|:--|
 | D01 | 枚举 | 背景铺垫/激励事件/上升行动/转折/高潮/下降行动/结局/过渡/复合功能/无法判断 | 自造词=报错 |
-| D04 | 对象 | **core 从下方 20 词选**；modifier 可 null；intensity 1-10 整数；**polarity 必填** ∈ positive/negative/neutral/mixed | `core:"敬仰"`=非法；漏 intensity/polarity=非法 |
+| D04 | 对象 | **core 从下方 v2.9.0 新 20 词选**；modifier 可 null；intensity 1-10 整数；**polarity 必填** ∈ positive/negative/neutral/mixed | `core:"敬仰"`=非法；漏 intensity/polarity=非法；2.9.0 产物写旧词（尊严/背叛/贪婪/宽恕）=非法 |
 | D05 | 整数 | 1 / 2 / 3 / 4 / 5 | 小数/越界=报错 |
 | D07 | 对象 | type ∈ 第一人称/第二人称/第三人称有限/第三人称全知/多视角/不可靠叙述者/客观叙事 | is_switch_point 没前后文证据一律 false |
 | D08 | 对象 | time/space 均 string\|null | 子字段 null 不写 null_reasons（仅 D08 整体 null 才写）|
 | D10 | 枚举\|null | 推动情节/揭示性格/传递信息/制造冲突/营造氛围/复合功能 | 无对话=null + null_reasons.D10 |
 | D11 | 数组 | 环境/心理/动作/外貌/感官描写（可多选 ≥1）| **严禁 null / 空数组**；纯议论段写 `["心理描写"]` 给低置信度 |
 
-**D04.core 20 枚举词（必须严格从中选 1）**：平静 / 压抑 / 焦虑 / 悲伤 / 愤怒 / 恐惧 / 喜悦 / 希望 / 绝望 / 孤独 / 信任 / 背叛 / 屈辱 / 尊严 / 嫉妒 / 贪婪 / 复仇 / 宽恕 / 悬疑 / 释然
+**D04.core v2.9.0 新 20 枚举词（必须严格从中选 1）**：平静 / 压抑 / 焦虑 / 悲伤 / 愤怒 / 恐惧 / 喜悦 / 希望 / 绝望 / 孤独 / 信任 / 屈辱 / 嫉妒 / 复仇 / 悬疑 / 释然 / 羞耻 / 惊讶 / 渴望 / 厌恶
+> **v2.9.0 手术（ADR-011）**：删 4 非情绪词（尊严=价值状态 / 背叛=事件关系 / 贪婪=动机特质 / 宽恕=行为美德）→ 补 4 中文文学高频情绪（羞耻 / 惊讶 / 渴望 / 厌恶）。2.8.0 及更早产物的旧词由校验器版本分支豁免，**新产物一律写新词表**。
 
 **D04.polarity（必填）**：positive / negative / neutral / mixed，四值覆盖全部段落；多重情绪交织/反讽张力写 `mixed`；拿不准按 `references/emotion-anchors.md` 的 core→极性缺省映射兜底。极性由**文本语义**判断，不由文风/情节走向推导。
 
@@ -263,11 +264,11 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 
 ### 4.3 Layer 2.5（D19）要点
 
-定位：L2 语义扩展——D19 做角色/精细情感（44 词），区别于 L1 D04 段落氛围摘要（20 词粗粒度）；同情绪都产出时**以 D19 为准**（决策 17）。
+定位：L2 语义扩展——D19 做角色/精细情感（50 词，v2.9.0 补 羞耻/渴望/嫉妒/迷茫/感动/得意），区别于 L1 D04 段落氛围摘要（20 词粗粒度）；同情绪都产出时**以 D19 为准**（决策 17）。
 
 | 子字段 | 校验要点 |
 |:--|:--|
-| `primary`（必填）| emotion ∈ 44 词；intensity 1-10；polarity ∈ 四值 |
+| `primary`（必填）| emotion ∈ 50 词（emotion-lexicon.md 真源）；intensity 1-10；polarity ∈ 四值 |
 | `secondary`（null 或 ≤2）| 已固化复合词（悲欣交集/爱恨交织/苦乐参半）直接作 primary，不拆 |
 | `target/trigger/arc`（null-合法）| 非 null 时 name/description 必填；arc 仅真实位移才 `has_shift:true` |
 | `expression`（必填）| `key_phrases` 每项过原文子串校验（error 级）|
@@ -347,9 +348,11 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 | **聚合层 Schema 完整定义（唯一真源）** | `references/aggregation-schema.md` | 跑/改 `scripts/aggregation/` 8 脚本或消费聚合产物前 |
 | **Few-shot 完整批注示例** | `references/annotation-examples.md` | 开始批注前看 1–2 条找感觉 |
 | **情绪校准锚点完整表** | `references/emotion-anchors.md` | 情绪强度犹豫时 |
-| **D19 情感词表（44 词，枚举真源）** | `references/emotion-lexicon.md` | 跑 P4/D19 前必读 |
+| **D19 情感词表（50 词，枚举真源）** | `references/emotion-lexicon.md` | 跑 P4/D19 前必读 |
+| **D01 叙事功能判别锚点（每词 2 示例 + 边界判定表）** | `references/function-anchors.md` | 写 D01 前必读（v3.1 新增，Freytag 五幕 + Labov 六要素） |
 | **节奏校准锚点完整表** | `references/pace-anchors.md` | 节奏犹豫时 |
 | **每层输出模板（可直接填充）** | `templates/*-output.json` | 避免漏字段 |
+| **同义词归一化器（自由词→枚举词保守映射）** | `scripts/term_normalizer.py` | 批量落盘前跑一遍纠偏（v3.1 新增） |
 | **设计决策记录** | 工作区 `docs/design-decisions.md`（已移出 skill 包归档） | 想改架构前先读；本 skill 包内不再携带 |
 | **架构说明 / 审计报告** | 工作区 `docs/architecture.md` / `docs/audit/v30-audit-report.md`（归档） | 深度排查时 |
 
@@ -357,14 +360,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 
 ## 9. 跨平台与快速安装
 
-**脚本跨平台**（纯 stdlib，Windows/Linux/macOS 一致）。安装即复制整个目录到 IDE 的 skills 目录：
-
-```bash
-cp -r close-reading-annotator/ ~/.cursor/skills/    # Cursor
-cp -r close-reading-annotator/ ~/.claude/skills/    # Claude Code
-# TRAE / VS Code Copilot：放 skills 目录或 .copilot/skills/
-# 纯手动模式：直接把本文件当 system prompt 喂任意大模型
-```
+**脚本跨平台**（纯 stdlib，Windows/Linux/macOS 一致）。安装即复制整个目录到 IDE 的 skills 目录，各 IDE 具体路径见 `README.md`「安装」节；纯手动模式可直接把本文件当 system prompt 喂任意大模型。
 
 ---
 
@@ -372,6 +368,7 @@ cp -r close-reading-annotator/ ~/.claude/skills/    # Claude Code
 
 | 版本 | 日期 | 变化 |
 |------|------|------|
+| **3.1.0** | 2026-09-05 | **词表手术与一致性加固（ADR-011，T-030）**：①D04.core 手术——删 4 非情绪词（尊严/背叛/贪婪/宽恕）→ 补 4 高频情绪（羞耻/惊讶/渴望/厌恶），annotation schema 2.8.0→2.9.0（新增枚举=次版本），validate 对 2.8.0 及更早旧词版本分支豁免；②D19 44→50——补 羞耻/渴望/嫉妒/迷茫/感动/得意，4 姿态复合词标注使用条件（emotion-lexicon.md v2）；③新建 `references/function-anchors.md`（D01 每词 2 示例 + 边界判定表，依据 Freytag 五幕 + Labov 六要素）；④新建 `scripts/term_normalizer.py` 同义词归一化（自由词→枚举词保守映射）；⑤全链同步（schema.md / emotion-anchors polarity 映射 / validate_output / templates / README-RUNBOOK 索引）+ SKILL.md 瘦身（§9 安装移 README）；⑥词库选型参照 NRC EmoLex（Plutchik 8 基元）与大连理工中文情感本体库（7 大类 21 小类）完成交叉验证。**验收**：py_compile 全绿 + 2.8.0 旧产物（含"尊严"）校验版本豁免通过 + 2.9.0 新词表校验断言通过 + 词表 grep 同步一致。 |
 | **3.0.1** | 2026-09-05 | **聚合层修复轮（决策 22，T-029 闭环）**：①adapters.py 字段名对齐上游真实字段——text2story events 改读 `primary_function/primary_time/characters_present`（原读不存在的 scene_summary/time/characters 全占位）、participants 统一 PER（原读不存在的 entity_type 全员误标 ORG）、YARN label 改读 primary_function、NCP 角色改读 `arc_classification.arc_type/trajectory_length/trajectory_sample`（原恒空）+ plot_structure 七桶按 primary_function 实际填充（原死结构）；②entity_resolution 输出 `segment_ids` 完整段集合 + scene_graph/character_arcs 优先完整段集合、采样不足回退原文别名匹配（修复出场角色截断，后半本书 characters_present 大面积为空）；③全脚本 `sorted(set(...))` + scene_graph primary_function 平票确定性 tie-break（消除 PYTHONHASHSEED 顺序漂移，复现性验证 6 产物两次运行哈希一致）；④character_arcs 回退阈值 `< segment_count`（原 *0.5 致 coverage_rate 虚高）；⑤题材关键词去书名化（删上海堡垒/月亮专属词，T-004 前置）；⑥无可靠性标注时 `is_reliable=None`（原默认 True 无证据声称可靠）；⑦文档收编：SKILL §3.7 聚合层章节 + 版本历史、README 版本治理表修正、RUNBOOK 补 8 脚本 CLI 速查、design-decisions 决策 19–22、新建 `references/aggregation-schema.md`（聚合层 Schema 真源）；⑧版本号解耦 ADR（决策 22）：skill version=3.0.1 / annotation schema=2.8.0 / aggregation schema=3.0.0 三域独立。**验收**：两本书全链路重跑 + 内容断言 ALL PASS（占位 0 / 空 tense 0 / 空 participants ≤5% 且均为 frontmatter/过渡段 / PER>0 / trajectory 非空 / plot_structure 非空）。 |
 | **3.0.0** | 2026-09-04 | **生成器就绪（决策 21）**：新增 `scripts/aggregation/causal_graph.py`（因果链，D01 校验端过滤）、`object_chains.py`（物件链，D15 意象聚类）、`story_graph.py`（五子图谱合并）、`adapters.py`（text2story/YARN/NCP 三适配器）。两本书验证通过。 |
 | **2.9.0** | 2026-09-04 | **全局聚合器 MVP（决策 20）**：新增 `scripts/aggregation/`——`entity_resolution.py`（实体消解）、`scene_graph.py`（场景图重建）、`character_arcs.py`（角色弧线）、`story_type_inference.py`（故事类型六维推断）。纯规则零依赖。 |
@@ -381,8 +378,8 @@ cp -r close-reading-annotator/ ~/.claude/skills/    # Claude Code
 | 2.5.0 | 2026-09-04 | 3→4 层架构大升级 + 7 项 P0 bug 修复（ID 碰撞/坐标漂移/无边界截断/frontmatter 丢弃/L4 占位/merge 字段/segment_id 前缀）+ schema 单一真源 + 4 层模板 + checkpoint 状态机 + span 段内相对偏移。 |
 | ≤2.3.0 | 2026-08-31~09-03 | 早期单片段版。2.2.0（12 维含 D02/D03）**已废弃**。 |
 
-> 版本号（决策 22 解耦后）：**skill version** SemVer 主版本=能力不兼容；次版本=新增能力；修订号=修复轮。**annotation schema_version** 独立演进（当前 2.8.0）。**aggregation schema_version** 独立演进（当前 3.0.0）。三者解耦，各自域内一致。
+> 版本号（决策 22 解耦后）：**skill version** SemVer 主版本=能力不兼容；次版本=新增能力；修订号=修复轮。**annotation schema_version** 独立演进（当前 2.9.0）。**aggregation schema_version** 独立演进（当前 3.0.0）。三者解耦，各自域内一致。
 
 ---
 
-*精读批注 Skill v3.0.1 — "先验证，再声称；每段每层落盘；二阶段跨段；四层合一，情感入轨；全局聚合，图谱拼图。从『规格正确』走向『实现可运行』。"*
+*精读批注 Skill v3.1.0 — "先验证，再声称；每段每层落盘；二阶段跨段；四层合一，情感入轨；全局聚合，图谱拼图。从『规格正确』走向『实现可运行』。"*

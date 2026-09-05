@@ -45,8 +45,8 @@ for _s in (sys.stdout, sys.stderr):
 
 # ---------------- 与 schema.md 严格一致的枚举 ----------------
 
-# v2.7.0：宽松兼容 2.5.0 / 2.6.0（2.6 新增必填子字段 D04.polarity，对 2.5.0 旧产物版本分支豁免；2.7 新增可选扩展 D19/emotion 文件，对旧产物不适用）
-SUPPORTED_SCHEMA_VERSIONS = {"2.5.0", "2.6.0", "2.7.0"}
+# v2.9.0：D04 词表手术（删 尊严/背叛/贪婪/宽恕 4 非情绪词 → 补 羞耻/惊讶/渴望/厌恶）；2.8.0 及更早产物旧词版本分支豁免（历史数据豁免，非可选）；D19 44→50 词（补 羞耻/渴望/嫉妒/迷茫/感动/得意）
+SUPPORTED_SCHEMA_VERSIONS = {"2.5.0", "2.6.0", "2.7.0", "2.8.0", "2.9.0"}
 SUPPORTED_STATUS = {"tentative", "confirmed", "superseded"}
 SUPPORTED_SECTION_TYPE = {"frontmatter", "body", "epilogue"}
 
@@ -56,12 +56,15 @@ D01_VALUES = {
     "下降行动", "结局", "过渡", "复合功能", "无法判断",
 }
 
-# D04 核心情绪（20）
+# D04 核心情绪（20，v2.9.0 手术后的新词表）
 D04_CORE_VALUES = {
     "平静", "压抑", "焦虑", "悲伤", "愤怒", "恐惧", "喜悦", "希望", "绝望",
-    "孤独", "信任", "背叛", "屈辱", "尊严", "嫉妒", "贪婪", "复仇", "宽恕",
-    "悬疑", "释然",
+    "孤独", "信任", "屈辱", "嫉妒", "复仇", "悬疑", "释然",
+    "羞耻", "惊讶", "渴望", "厌恶",
 }
+
+# D04 旧版词表（2.8.0 及更早产物版本分支豁免——历史数据豁免，非可选）
+D04_CORE_LEGACY_VALUES = D04_CORE_VALUES | {"尊严", "背叛", "贪婪", "宽恕"}
 
 # D04 情感极性（v2.6.0 新增。2.6.0 产物必填；2.5.0 旧产物豁免——历史数据豁免，非可选）
 D04_POLARITY_VALUES = {"positive", "negative", "neutral", "mixed"}
@@ -82,15 +85,17 @@ D11_VALUES = {"环境描写", "心理描写", "动作描写", "外貌描写", "�
 D06_TYPES = {"揭示", "隐藏", "误导", "复合"}
 NARRATOR_RELIABILITY_VALUES = {"可靠", "部分不可靠", "不可靠", "无法判断"}
 
-# D19 情感词表（v2.7.0，44 词。真源 = references/emotion-lexicon.md，白名单必须逐词同步该文件）
+# D19 情感词表（v2.9.0，50 词。真源 = references/emotion-lexicon.md，白名单必须逐词同步该文件）
 EMOTION_LEXICON_VALUES = {
     # 基础层（Plutchik 8 基元）
     "喜悦", "悲伤", "愤怒", "恐惧", "惊讶", "期待", "厌恶", "信任",
-    # 文学扩展层（36 词）
+    # 文学扩展层（42 词，v2.9.0 补 6：羞耻/渴望/嫉妒/迷茫/感动/得意）
     "依恋", "眷恋", "温情", "甜蜜", "哀恸", "苍凉", "怅惘", "物哀", "悲悯", "怀旧",
     "心碎", "绝望", "宽慰", "安宁", "旷达", "释然", "崇敬", "敬畏", "震撼", "崇高感",
     "荒诞感", "漂泊感", "隐忍", "焦虑", "恐慌", "鄙夷", "疏离", "厌倦", "冷漠",
+    "羞耻", "渴望", "嫉妒", "迷茫", "感动", "得意",
     "悲欣交集", "爱恨交织", "苦乐参半",
+    # 姿态复合词（4，表面姿态与底色情感冲突时使用）
     "克制中的温情", "冷峻中的悲悯", "叙述性冷漠", "反讽性平静",
 }
 
@@ -254,7 +259,10 @@ def validate_structure_layer(ann: dict) -> tuple[list[str], list[str]]:
         core = d04.get("core")
         intensity = d04.get("intensity")
         if core not in D04_CORE_VALUES:
-            errs.append(f"D04.core={core!r} 不在枚举 {sorted(D04_CORE_VALUES)} 内")
+            if ann.get("schema_version") in {"2.5.0", "2.6.0", "2.7.0", "2.8.0"} and core in D04_CORE_LEGACY_VALUES:
+                pass  # 2.8.0 及更早旧词版本分支豁免（历史数据豁免）
+            else:
+                errs.append(f"D04.core={core!r} 不在枚举 {sorted(D04_CORE_VALUES)} 内")
         if not (isinstance(intensity, int) and 1 <= intensity <= 10):
             errs.append(f"D04.intensity={intensity!r} 必须是 1-10 整数")
         pol = d04.get("polarity")
@@ -352,7 +360,7 @@ def validate_interpretation_layer(ann: dict) -> tuple[list[str], list[str]]:
 def validate_emotion_layer(ann: dict) -> tuple[list[str], list[str]]:
     """D19 情感分析（emotion.jsonl，v2.7.0，P4 Pass）校验。
 
-    emotion 枚举真源 = references/emotion-lexicon.md（44 词）；key_phrases 必须过原文子串校验；
+    emotion 枚举真源 = references/emotion-lexicon.md（50 词）；key_phrases 必须过原文子串校验；
     target / trigger / arc 均 null-合法（禁止为凑结构编造情感弧）。
     """
     errs, warns = _check_required_root_keys(ann), []
@@ -364,7 +372,12 @@ def validate_emotion_layer(ann: dict) -> tuple[list[str], list[str]]:
         return [*errs, "layers.emotion 缺失"], []
     d19 = emo.get("D19_emotion_analysis")
     if not isinstance(d19, dict):
-        return [*errs, "layers.emotion.D19_emotion_analysis 缺失"], []
+        # v2.8.0+ 直接格式（layers.emotion.primary.* 等）兼容：识别到 primary 即提升一层校验；
+        # 兼容 v2.8 数据修复后未升版本号、但结构已为直接格式的混合产物（如 moon 2.7.0+直接格式）。
+        if isinstance(emo.get("primary"), dict):
+            d19 = emo
+        else:
+            return [*errs, "layers.emotion.D19_emotion_analysis 缺失"], []
     errs.extend(_check_text_span(ann))
     cerrs, cwarns = _check_confidence_and_status(ann, "emotion")
     errs.extend(cerrs)
@@ -381,7 +394,7 @@ def validate_emotion_layer(ann: dict) -> tuple[list[str], list[str]]:
             return
         em = e.get("emotion")
         if em not in EMOTION_LEXICON_VALUES:
-            errs.append(f"{prefix}.emotion={em!r} 不在 emotion-lexicon.md 词表（44 词）内")
+            errs.append(f"{prefix}.emotion={em!r} 不在 emotion-lexicon.md 词表（50 词）内")
         it = e.get("intensity")
         if not (isinstance(it, int) and 1 <= it <= 10):
             errs.append(f"{prefix}.intensity={it!r} 必须是 1-10 整数")
@@ -503,7 +516,12 @@ def validate_craft_layer(ann: dict) -> tuple[list[str], list[str]]:
         return errs, warns
     craft = ann.get("craft")
     if not isinstance(craft, dict):
-        return [*errs, "顶层 craft 键缺失（必须是 object）"], []
+        # v2.8.0+ 格式统一：craft 在 layers.craft 下（v2.7 顶层 craft 旧格式版本分支豁免）
+        layers_craft = (ann.get("layers") or {}).get("craft")
+        if isinstance(layers_craft, dict):
+            craft = layers_craft
+        else:
+            return [*errs, "顶层 craft 键缺失（必须是 object）"], []
     errs.extend(_check_text_span(ann))
     cerrs, cwarns = _check_confidence_and_status(ann, "craft")
     errs.extend(cerrs)

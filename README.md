@@ -3,7 +3,7 @@
 > 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）与**全局聚合层**（实体/场景/角色弧线/故事类型/因果链/物件链/故事图/适配器）。
 > 适合：小说精读、故事拆解、叙事分析、文笔拆解、结构化语料构建。
 > 本仓库即**完整可运行的 Skill 包**——放到 TRAE / Cursor / Claude Code 的 skills 目录即可使用，也支持纯手动模式（把 `SKILL.md` 注入任意大模型）。
-> **版本（决策 22 三域解耦）**：skill_version = `3.0.1` / annotation schema_version = `2.8.0` / aggregation schema_version = `3.0.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`。
+> **版本（决策 22 三域解耦）**：skill_version = `3.1.0` / annotation schema_version = `2.9.0` / aggregation schema_version = `3.0.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`。
 
 ---
 
@@ -100,7 +100,7 @@ python scripts/annotate_segment.py \
 ```
 
 - `--layers` 组合：`structure` / `structure,interpretation` / `structure,interpretation,craft`，可加 `emotion`（P4，D19 情感分析）
-- **P4 情感层（v2.7）**：`--layers emotion` 时脚本自动读取该段 structure 的 D01/D04/D10 作为触发判定上下文并注入原文；情感词枚举 44 词见 [references/emotion-lexicon.md](references/emotion-lexicon.md)；`target/trigger/arc` 无明确值必须写 `null` + `null_reasons`，禁止编造
+- **P4 情感层（v2.7）**：`--layers emotion` 时脚本自动读取该段 structure 的 D01/D04/D10 作为触发判定上下文并注入原文；情感词枚举 50 词见 [references/emotion-lexicon.md](references/emotion-lexicon.md)；`target/trigger/arc` 无明确值必须写 `null` + `null_reasons`，禁止编造
 - 断点续跑：`--resume`（默认开启）自动跳过 checkpoint 中已完成的 `(segment, layer)`
 - 每层产出自动跑 validate_output，通过才写 checkpoint + JSONL，失败最多重试 3 次
 
@@ -152,7 +152,7 @@ python scripts/validate_output.py --jsonl <某层>.jsonl
 - 引文抽取 + 子串验证（D06 / D13–D17 引文必须是 `text_span.text` 子串）
 - span 位置断言（`0 ≤ start < end ≤ len`，切片相似度 ≥95%；85–95% warning，<85% error）
 - 置信度 ↔ status 自动对齐（overall ≥0.8 才允许 `confirmed`）
-- 必填维度置信度不可为 null；emotion 层额外校验 44 词枚举与情感弧端点
+- 必填维度置信度不可为 null；emotion 层额外校验 50 词枚举与情感弧端点
 
 ### 脱敏导出（入库前必须跑）
 
@@ -187,7 +187,8 @@ close-reading-annotator/
 │   ├── schema.md                    # 【唯一真源】Schema 完整定义（枚举/字段约束/span 坐标系/引文校验/置信度/版本声明）
 │   ├── annotation-examples.md       # Few-shot 完整批注示例
 │   ├── emotion-anchors.md           # 情绪强度校准锚点（文学描写分档）
-│   ├── emotion-lexicon.md           # D19 情感词枚举表（44 词，含触发式判定指引）
+│   ├── emotion-lexicon.md           # D19 情感词枚举表（50 词，含触发式判定指引）
+│   ├── function-anchors.md            # D01 叙事功能判别锚点（v3.1 新增，Freytag+Labov）
 │   └── pace-anchors.md              # 叙事节奏校准锚点
 │
 ├── templates/                       # 每层输出模板（均通过 validate_output.py 0 error 校验）
@@ -237,10 +238,10 @@ close-reading-annotator/
 | 版本域 | 声明点 | 值 |
 |--------|--------|-----|
 | **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.0.1` |
-| **annotation schema_version** | `references/schema.md` §一 / 批注 JSON `schema_version` / annotate_segment.py / examples/llm_wrapper.py | `2.8.0` |
+| **annotation schema_version** | `references/schema.md` §一 / 批注 JSON `schema_version` / annotate_segment.py / examples/llm_wrapper.py | `2.9.0` |
 | **aggregation schema_version** | `references/aggregation-schema.md` / `scripts/aggregation/*.py` | `3.0.0` |
 
-> 三域独立演进（决策 22）：skill 能力升级不再强绑定批注字段变更；批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`（旧产物版本分支豁免，不迁移）。
+> 三域独立演进（决策 22）：skill 能力升级不再强绑定批注字段变更；批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`（旧产物版本分支豁免，不迁移）。
 > 修改批注层枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**。修改聚合层产物字段：**先改 `references/aggregation-schema.md`，再改 `scripts/aggregation/*.py`**。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
 
 主要里程碑：
@@ -312,7 +313,8 @@ A5：不能，需要按新 Schema 迁移（结构层字段大改，需逐字段�
 | [references/schema.md](references/schema.md) | 改枚举/校验/字段前必读（唯一真源） |
 | [references/annotation-examples.md](references/annotation-examples.md) | 开始批注前看 1–2 条找格式感觉 |
 | [references/emotion-anchors.md](references/emotion-anchors.md) | 情绪强度判断犹豫时 |
-| [references/emotion-lexicon.md](references/emotion-lexicon.md) | D19 情感层标注前（44 词枚举） |
+| [references/emotion-lexicon.md](references/emotion-lexicon.md) | D19 情感层标注前（50 词枚举） |
+| [references/function-anchors.md](references/function-anchors.md) | D01 叙事功能标注前（每词 2 示例 + 边界判定，v3.1） |
 | [references/pace-anchors.md](references/pace-anchors.md) | 节奏判断犹豫时 |
 
 > 架构与设计决策记录（`docs/architecture.md`、`docs/design-decisions.md`）已移至项目工作区 `docs/` 归档（T-028 起，skill 分发包只保留运行必需文档）。

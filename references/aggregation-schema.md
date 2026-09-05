@@ -1,7 +1,7 @@
 # references/aggregation-schema.md — 全局聚合层产物 Schema 定义 v3.0.0
 
 > **本文件是聚合层产物的唯一真源**（对应审计 P2-12 / 决策 22）。
-> 批注四层 Schema 的真源是 `references/schema.md`（v2.8.0）；聚合层（v2.9/v3.0）产物 Schema 以本文件为准。
+> 批注四层 Schema 的真源是 `references/schema.md`（v2.9.0）；聚合层（v2.9/v3.0）产物 Schema 以本文件为准。
 > 聚合脚本 `scripts/aggregation/*.py` 的 `SCHEMA_VERSION` 统一为 `3.0.0`。
 > 字段以两本实测书（月亮与六便士 / 上海堡垒）的真实产物为基准整理，修订字段必须先改本文件再改脚本。
 

@@ -1,17 +1,22 @@
-# references/schema.md — 四层精读批注 Schema 完整定义 v2.8.0
+# references/schema.md — 四层精读批注 Schema 完整定义 v2.9.0
 
 > **⚠️ 本文件是唯一真源。** 所有枚举值、字段格式、span 坐标系、引文校验规则，**只以本文件为准**。
 > SKILL.md、`scripts/validate_output.py`、`templates/*.json` 下游三者的定义必须完全同步于本文件。
-> 版本号 `2.8.0` 必须与 SKILL.md frontmatter、新批注 JSON 的 `schema_version`、`_metadata.skill_version` 一致。
-> 校验器向后兼容：`2.5.0` / `2.6.0` / `2.7.0` / `2.8.0` 旧产物仍被接受（版本分支豁免，见 §八）。
-> **唯一例外**：D19 的 `emotion` 枚举（44 词）因需随语料演化，真源为 `references/emotion-lexicon.md`——本文件只声明引用，validate_output.py 白名单须逐词同步 emotion-lexicon.md。
+> 版本号 `2.9.0` 必须与 SKILL.md frontmatter、新批注 JSON 的 `schema_version`、`_metadata.skill_version` 一致。
+> 校验器向后兼容：`2.5.0` / `2.6.0` / `2.7.0` / `2.8.0` / `2.9.0` 产物均被接受（版本分支豁免，见 §八）。
+> **唯一例外**：D19 的 `emotion` 枚举（50 词）因需随语料演化，真源为 `references/emotion-lexicon.md`——本文件只声明引用，validate_output.py 白名单须逐词同步 emotion-lexicon.md。
 
 ---
 
 ## 一、版本与真源声明
 
-- Schema 版本：`2.8.0`（SemVer）
-- **v2.8.0 变更摘要（宽松兼容）**：
+- Schema 版本：`2.9.0`（SemVer）
+- **v2.9.0 变更摘要（宽松兼容，ADR-011）**：
+  - **D04.core 词表手术**：删 4 非情绪词（尊严=价值状态 / 背叛=事件关系 / 贪婪=动机特质 / 宽恕=行为美德）→ 补 4 中文文学高频情绪（羞耻 / 惊讶 / 渴望 / 厌恶），20 词保持；**2.8.0 及更早产物旧词由校验器版本分支豁免**（历史数据豁免，不迁移不拒绝）。
+  - **D19 词表 44→50**：补 羞耻 / 渴望 / 嫉妒 / 迷茫 / 感动 / 得意；4 姿态复合词（叙述性冷漠/反讽性平静/冷峻中的悲悯/克制中的温情）标注使用条件（真源 emotion-lexicon.md v2）。
+  - **D01 判别锚点**：新增 `references/function-anchors.md`（每词 2 示例 + 边界判定表，依据 Freytag 五幕 + Labov 六要素）。
+  - **同义词归一化**：新增 `scripts/term_normalizer.py`（自由产出词→枚举词保守映射，落盘前自动纠偏）。
+  - 不改不删任何既有必填字段；2.5–2.8 旧产物零迁移。
   - **格式统一**：craft 层内容从顶层 `craft` 统一为 `layers.craft`；emotion 层去掉 `D19_emotion_analysis` 嵌套，字段直接放在 `layers.emotion` 下（v2.7.0 旧格式 `layers.emotion.D19_emotion_analysis.*` 由校验器版本分支豁免，建议迁移）。
   - **新增 `_provenance` 全局元字段**：溯源信息（run_id/generator/model/generated_at），v2.8 数据修复后所有产物 100% 覆盖。
   - **D18 扩展**：新增可选子字段 `speech_verb_distribution`（言说动词分布）和 `dialogue_length_avg`（平均对话长度），用于角色语言指纹的量化分析。
@@ -30,7 +35,7 @@
 
 | 根键 | 类型 | 是否必填 | 说明 |
 |------|------|:--------:|------|
-| `schema_version` | string | ✅ | 新产物固定为 `"2.8.0"`（emotion 文件必为 2.8.0；L1–L3 续批可写 2.8.0 或保持 2.7.0/2.6.0，均合法，见 §八）。validate_output 接受 `"2.5.0"` / `"2.6.0"` / `"2.7.0"` / `"2.8.0"`：2.6 新增必填子字段 `D04.polarity`（对 2.5.0 版本分支豁免）；2.7 新增可选扩展 D19（emotion 文件，2.5/2.6 产物无此层，不校验）；2.8 统一 craft/emotion 格式（2.7 嵌套旧格式版本分支豁免）；下游读到未知主号直接报错。 |
+| `schema_version` | string | ✅ | 新产物固定为 `"2.9.0"`（emotion 文件必为 2.9.0；L1–L3 续批可写 2.9.0 或保持 2.5.0–2.8.0，均合法，见 §八）。validate_output 接受 `"2.5.0"` / `"2.6.0"` / `"2.7.0"` / `"2.8.0"` / `"2.9.0"`：2.6 新增必填子字段 `D04.polarity`（对 2.5.0 版本分支豁免）；2.7 新增可选扩展 D19（emotion 文件，2.5/2.6 产物无此层，不校验）；2.8 统一 craft/emotion 格式（2.7 嵌套旧格式版本分支豁免）；**2.9 D04 新 20 词（2.8.0 及更早旧词版本分支豁免）**；下游读到未知主号直接报错。 |
 | `annotation_id` | string | ✅ | 全局唯一 ID。格式：`<doc_id>_seg_<segment序号>_<layer>_<annotation序号>`，如 `moon_sixpence_seg_0001_structure_ann_0`。 |
 | `document_id` | string | ✅ | 用户自定义文档 ID。同一文档所有片段/所有层共享此 ID。 |
 | `segment_id` | string | ✅ | 片段 ID，格式：`<doc_id>_seg_<4位十进制序号>`，如 `moon_sixpence_seg_0001`。**必须带 doc_id 前缀**——避免多文档合并时 ID 碰撞。 |
@@ -173,14 +178,14 @@ Layer 3（文笔层）所有引用子串的 `span`（D13/D14/D15/D16/D17），**
 #### D04 情绪基调（对象，必填）
 ```typescript
 "D04": {
-  "core": string,   // 枚举 20 个：平静/压抑/焦虑/悲伤/愤怒/恐惧/喜悦/希望/绝望/孤独/信任/背叛/屈辱/尊严/嫉妒/贪婪/复仇/宽恕/悬疑/释然
+  "core": string,   // 枚举 20 个（v2.9.0 手术）：平静/压抑/焦虑/悲伤/愤怒/恐惧/喜悦/希望/绝望/孤独/信任/屈辱/嫉妒/复仇/悬疑/释然/羞耻/惊讶/渴望/厌恶（2.8.0 及更早旧词 尊严/背叛/贪婪/宽恕 版本分支豁免）
   "modifier": string | null,  // 情绪修饰词（不能比 core 更长）
   "intensity": number, // 1-10 整数，与 emotion-anchors.md 对齐
   "polarity": "positive" | "negative" | "neutral" | "mixed"  // v2.6.0 新增，必填（省略=非法）
 }
 ```
 > **v2.6.0 新增 `polarity`（必填）**：情感极性——positive / negative / neutral / mixed，四值覆盖全部段落，**不得省略**（校验必填）。
-> - 判断依据是**段落文本语义**（喜悦/希望/信任→positive；悲伤/愤怒/恐惧/绝望/背叛/屈辱→negative；平静→neutral；多情绪交织或反讽张力→mixed），不由情节走向或文风推导。
+> - 判断依据是**段落文本语义**（喜悦/希望/信任/渴望→positive；悲伤/愤怒/恐惧/绝望/屈辱/羞耻/厌恶→negative；平静→neutral；惊讶→neutral（语境定）；多情绪交织或反讽张力→mixed），不由情节走向或文风推导。
 > - 拿不准时回到「core → 极性」缺省映射（emotion-anchors.md），宁用 `neutral`/`mixed` 兜底也**不要省略**。
 > - 旧产物 `schema_version: "2.5.0"`（无 polarity）由校验器**版本分支豁免**放行（历史数据豁免，不是"可选"），无需迁移。
 
@@ -262,9 +267,9 @@ Layer 3（文笔层）所有引用子串的 `span`（D13/D14/D15/D16/D17），**
 
 ### Layer 2.5：情感分析——D19_emotion_analysis（`emotion.jsonl`）阐释层扩展，v2.7.0 新增
 
-> **定位**：D19 是**阐释层（Layer 2）的语义扩展，不是独立架构层**（决策 17）。区别于 L1 的 D04「段落氛围摘要」（20 词粗粒度），D19 做**角色/精细情感分析**（44 词）：复合情感、情感对象、触发点、段内情感弧、表达方式。两者若对同一情绪都产出判断，**以 D19 为准**。
+> **定位**：D19 是**阐释层（Layer 2）的语义扩展，不是独立架构层**（决策 17）。区别于 L1 的 D04「段落氛围摘要」（20 词粗粒度），D19 做**角色/精细情感分析**（50 词）：复合情感、情感对象、触发点、段内情感弧、表达方式。两者若对同一情绪都产出判断，**以 D19 为准**。
 > **P4 Pass 独立产物**：D19 走独立 P4 Pass，落**独立文件 `{doc_id}_emotion.jsonl`**（append-only，独立校验），不回写 interpretation 行；`merge_layers` 时并入 `merged.emotion`。
-> **词表演化例外**：`emotion` 枚举真源为 `references/emotion-lexicon.md`（44 词，validate 白名单逐词同步该文件）。
+> **词表演化例外**：`emotion` 枚举真源为 `references/emotion-lexicon.md`（50 词，validate 白名单逐词同步该文件）。
 
 #### D19 触发条件（P4 是否对本段执行；任一命中 = 触发）
 
@@ -284,7 +289,7 @@ Layer 3（文笔层）所有引用子串的 `span`（D13/D14/D15/D16/D17），**
   "emotion": {
     // 1. 主情感（必填）
     "primary": {
-      "emotion": string,       // 枚举：references/emotion-lexicon.md 44 词（如 "冷峻中的悲悯"）
+      "emotion": string,       // 枚举：references/emotion-lexicon.md 50 词（如 "冷峻中的悲悯"）
       "intensity": number,     // 1-10 整数，与 emotion-anchors.md 强度档对齐
       "polarity": "positive" | "negative" | "neutral" | "mixed"  // 文本语义判定；词表有极性缺省兜底
     },
@@ -327,7 +332,7 @@ Layer 3（文笔层）所有引用子串的 `span`（D13/D14/D15/D16/D17），**
 
 | 字段 | 约束 |
 |:--|:--|
-| `primary.emotion` / `secondary[].emotion` / `arc.before.after.emotion` | 必须 ∈ emotion-lexicon.md 44 词；词表无对应 → 用最接近词 + `expression.note` 说明，**不造新词** |
+| `primary.emotion` / `secondary[].emotion` / `arc.before.after.emotion` | 必须 ∈ emotion-lexicon.md 50 词；词表无对应 → 用最接近词 + `expression.note` 说明，**不造新词** |
 | `primary.intensity` 等 | 1-10 整数（emotion-anchors.md 档位） |
 | `polarity` | 四值全覆盖；词表极性为缺省映射，明显张力/复合可偏离写 mixed |
 | `target` / `trigger` / `arc` | 三者均 null-合法——无对象/无事件触发/无位移时写 null + `null_reasons`（顶层）注明，禁止强行编造（对应方案前置 C3：arc 可选即场景边界问题的等价出口） |
@@ -335,11 +340,11 @@ Layer 3（文笔层）所有引用子串的 `span`（D13/D14/D15/D16/D17），**
 | `expression.key_phrases` | 数组每项必须是 `text_span.text` 子串（归一化），未命中 = 校验 error |
 | `confidence.per_dimension.D19` | P4 触发段必填 0-1 数字 |
 
-#### Emotion 层输出根结构（v2.8.0 格式）
+#### Emotion 层输出根结构（v2.9.0 格式）
 
 ```json
 {
-  "schema_version": "2.8.0",
+  "schema_version": "2.9.0",
   "annotation_id": "<doc_id>_seg_0051_emotion_ann_0",
   "document_id": "<doc_id>",
   "segment_id": "<doc_id>_seg_0051",
@@ -366,7 +371,7 @@ Layer 3（文笔层）所有引用子串的 `span`（D13/D14/D15/D16/D17），**
   "alternatives": [],
   "status": "confirmed",
   "_provenance": { "run_id": "...", "generator": "llm_external", "model": "...", "generated_at": "ISO8601" },
-  "_metadata": { "skill_version": "2.8.0", "model": "deepseek-r1", "generated_at": "ISO8601", "layer": "emotion", "annotation_pass": "P4" }
+  "_metadata": { "skill_version": "2.9.0", "model": "deepseek-r1", "generated_at": "ISO8601", "layer": "emotion", "annotation_pass": "P4" }
 }
 ```
 
@@ -526,7 +531,7 @@ Layer 4 **不在逐片段中执行**——等 Layer 1-3 全部完成后，独立
 ```json
 {
   "doc_id": "...",
-  "schema_version": "2.8.0",
+  "schema_version": "2.9.0",
   "total_segments": 58,
   "completed": [
     { "segment": "<doc_id>_seg_0001", "layers": ["structure", "interpretation", "craft", "emotion"] },
@@ -552,14 +557,15 @@ Layer 4 **不在逐片段中执行**——等 Layer 1-3 全部完成后，独立
 
 ## 八、版本兼容矩阵
 
-| 版本 | 与 v2.8.0 兼容 | 迁移说明 |
+| 版本 | 与 v2.9.0 兼容 | 迁移说明 |
 |------|:---------------:|---------|
 | v2.3.0 | ❌ 大改 | 3 层 → 4 层，字段层级重构（structure/interpretation 从 `layers` 提升到层级 JSONL），新增 narrator_reliability / craft 6 维 / cross_refs / checkpoint。需逐字段迁移或对原文重跑 v2.8 管线（见 README 常见问题 Q5）。 |
 | v2.5.0 | ✅ | 校验器接受 2.5.0（2.6 新增必填子字段 `D04.polarity`，但对 2.5.0 旧产物**版本分支豁免**；2.7 的 D19 对 2.5.0 产物完全不适用；2.8 的 _provenance 对旧产物豁免）。旧产物无需迁移。 |
 | v2.5.x | ✅ | 修订号，纯 bugfix，不破坏字段。 |
 | v2.6.0 | ✅ | 新增必填子字段 `D04.polarity`（旧 2.5.0 产物豁免）；跨段规则版补 span / 锚点清洗；Markdown 报告补 L2/L3 摘要。v2.7.0 不改动 L1–L3 字段，2.6.0 产物零迁移。 |
 | v2.7.0 | ✅ | 新增 **D19 情感分析**（阐释层语义扩展，P4 Pass，独立 `emotion.jsonl`）：emotion 枚举见 `references/emotion-lexicon.md`（44 词）；`arc`/`target`/`trigger` null-合法；`key_phrases` 过原文子串校验。L1–L3 文件 schema 不变（续批可写 2.7.0 或保持 2.6.0）。**格式注意**：v2.7.0 emotion 使用 `layers.emotion.D19_emotion_analysis.*` 嵌套格式，v2.8.0 已统一为 `layers.emotion.*` 直接格式，校验器对旧格式版本分支豁免。 |
-| v2.8.0 | ✅ 当前 | **格式统一**：craft 顶层→`layers.craft`；emotion 去掉 `D19_emotion_analysis` 嵌套→`layers.emotion.*` 直接格式。**新增 `_provenance` 全局元字段**（溯源信息，建议必填，旧产物豁免）。**D18 扩展**：新增可选子字段 `speech_verb_distribution`/`dialogue_length_avg`。不改不删任何既有必填字段；2.5/2.6/2.7 旧产物零迁移（格式不统一的旧产物建议用 v2.8 修复脚本统一）。下游解析器：emotion 文件字段一定齐全；旧产物按无 emotion 处理即可。 |
+| v2.8.0 | ✅ | **格式统一**：craft 顶层→`layers.craft`；emotion 去掉 `D19_emotion_analysis` 嵌套→`layers.emotion.*` 直接格式。**新增 `_provenance` 全局元字段**（溯源信息，建议必填，旧产物豁免）。**D18 扩展**：新增可选子字段 `speech_verb_distribution`/`dialogue_length_avg`。不改不删任何既有必填字段；2.5/2.6/2.7 旧产物零迁移（格式不统一的旧产物建议用 v2.8 修复脚本统一）。下游解析器：emotion 文件字段一定齐全；旧产物按无 emotion 处理即可。 |
+| v2.9.0 | ✅ 当前 | **D04.core 词表手术**（删 尊严/背叛/贪婪/宽恕 → 补 羞耻/惊讶/渴望/厌恶，2.8.0 及更早旧词版本分支豁免）；**D19 44→50 词**（补 羞耻/渴望/嫉妒/迷茫/感动/得意，姿态复合词标注使用条件）；**D01 判别锚点**（新增 references/function-anchors.md）；**同义词归一化**（新增 scripts/term_normalizer.py）。L1–L3 字段结构不变；2.5–2.8 旧产物零迁移。 |
 | v3.0.0（未来） | ❌ | 破坏性升级。 |
 
 ---

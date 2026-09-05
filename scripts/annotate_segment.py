@@ -76,7 +76,7 @@ from validate_output import (  # noqa: E402
     _call_validator,
 )
 
-SCHEMA_VERSION = "2.8.0"
+SCHEMA_VERSION = "2.9.0"
 
 ALL_LAYERS = ["structure", "interpretation", "craft", "emotion"]
 
@@ -155,7 +155,7 @@ def _emotion_manual_block(seg: dict, struct_blk: dict | None) -> str:
     else:
         lines.append("⚠️ 未找到该段 structure 行：无法自动判定触发，请人工按 P4 条件核对。")
     lines.append(
-        "要求：emotion 必须选自 references/emotion-lexicon.md 44 词白名单"
+        "要求：emotion 必须选自 references/emotion-lexicon.md 50 词白名单"
         "（无对应词→选最接近词 + expression.note 说明，不造新词）；"
     )
     lines.append(

@@ -2,7 +2,7 @@
 
 > **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
 > 完整 schema / 枚举 / 设计决策见 `references/schema.md`（批注层）、`references/aggregation-schema.md`（聚合层）、`SKILL.md`、工作区 `docs/design-decisions.md`。
-> 版本：skill v3.0.1 / annotation schema 2.8.0 / aggregation schema 3.0.0（决策 22 三域解耦）
+> 版本：skill v3.1.0 / annotation schema 2.9.0 / aggregation schema 3.0.0（决策 22 三域解耦）
 
 ---
 
@@ -176,13 +176,13 @@ python $AGG/adapters.py --story-graph $OUT/aggregation/${DOC}_story_graph.json \
 | 错误信息 | 原因 | 修复 |
 |---------|------|------|
 | `缺失必填顶层字段：annotation_id` | 注入的 JSON 缺字段 | 从 `templates/<layer>-output.json` 复制模板填充 |
-| `D04.core 不在 20 词枚举内` | 自造了情绪词 | 只能从：平静/压抑/焦虑/悲伤/愤怒/恐惧/喜悦/希望/绝望/孤独/信任/背叛/屈辱/尊严/嫉妒/贪婪/复仇/宽恕/悬疑/释然 中选 |
+| `D04.core 不在 20 词枚举内` | 自造了情绪词 / 写了 v2.9.0 已删旧词 | 只能从 v2.9.0 新 20 词选：平静/压抑/焦虑/悲伤/愤怒/恐惧/喜悦/希望/绝望/孤独/信任/屈辱/嫉妒/复仇/悬疑/释然/羞耻/惊讶/渴望/厌恶（旧词 尊严/背叛/贪婪/宽恕 仅 2.8.0 及更早产物合法） |
 | `D01 不在枚举内` | 自造了叙事功能词 | 只能从：背景铺垫/激励事件/上升行动/转折/高潮/下降行动/结局/过渡/复合功能/无法判断 中选 |
 | `引文不是 text_span.text 子串` | craft/interpretation 的引文含原文注释标记或被改写 | 用 `text.find(引文)` 精确定位；去掉①②等注释标记 |
 | `span 切片相似度 <85%` | span 位置漂移 | craft 层会自动回算重试；仍失败则手动用 `text.find` 修正 |
 | `span start >= end` 或 `span 越界` | span 坐标非法 | 确保 `0 ≤ start < end ≤ len(text)` |
 | `status=confirmed 但 overall<0.8` | 置信度与状态不一致 | overall≥0.8 才能 confirmed；<0.8 改 tentative |
-| `D19.emotion 不在 44 词白名单` | 情感词自造 | 查 `references/emotion-lexicon.md`，选最接近词 + expression.note 说明 |
+| `D19.emotion 不在 50 词白名单` | 情感词自造 | 查 `references/emotion-lexicon.md`（50 词），选最接近词 + expression.note 说明 |
 | `key_phrases 不是原文子串` | D19 表达短语不在原文里 | 每项必须是 `text_span.text` 的精确子串 |
 | `schema_version 不在允许集合` | 版本号错 | 当前允许 2.6.0 / 2.7.0 |
 

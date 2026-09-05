@@ -1,6 +1,6 @@
 {
-  "_comment": "情感分析（D19，阐释层 Layer 2.5 扩展）输出模板。v2.8 格式统一：emotion 内容直接在 layers.emotion 下（不再嵌套 D19_emotion_analysis）。emotion 枚举见 references/emotion-lexicon.md（44 词）；expression.key_phrases 每项必须是 text_span.text 子串；target/trigger/arc 无明确值时写 null + 顶层 null_reasons，禁止编造。请勿输出 _comment。",
-  "schema_version": "2.8.0",
+  "_comment": "情感分析（D19，阐释层 Layer 2.5 扩展）输出模板。v2.8 格式统一：emotion 内容直接在 layers.emotion 下（不再嵌套 D19_emotion_analysis）。emotion 枚举见 references/emotion-lexicon.md（50 词，v2.9.0 补 6 高频词）；expression.key_phrases 每项必须是 text_span.text 子串；target/trigger/arc 无明确值时写 null + 顶层 null_reasons，禁止编造。请勿输出 _comment。",
+  "schema_version": "2.9.0",
   "annotation_id": "<doc_id>_seg_<NNNN>_emotion_ann_0",
   "document_id": "<doc_id>",
   "segment_id": "<doc_id>_seg_<NNNN>",
@@ -15,7 +15,7 @@
   "layers": {
     "emotion": {
       "primary": {
-        "emotion": "<emotion-lexicon.md 44 词之一，如 悲悯>",
+        "emotion": "<emotion-lexicon.md 50 词之一，如 悲悯>",
         "intensity": 6,
         "polarity": "mixed"
       },
@@ -48,7 +48,7 @@
     "generated_at": "ISO8601"
   },
   "_metadata": {
-    "skill_version": "2.8.0",
+    "skill_version": "2.9.0",
     "layer": "emotion",
     "annotation_pass": "P4"
   }

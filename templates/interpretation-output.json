@@ -1,6 +1,6 @@
 {
   "_comment": "阐释层（Layer 2）输出模板。v2.5 起每层独立 JSONL。D06.content 中引号引的引文必须是 text_span.text 的子串。请勿输出 _comment。",
-  "schema_version": "2.7.0",
+  "schema_version": "2.9.0",
   "annotation_id": "<doc_id>_seg_<NNNN>_interpretation_ann_0",
   "document_id": "<doc_id>",
   "segment_id": "<doc_id>_seg_<NNNN>",
