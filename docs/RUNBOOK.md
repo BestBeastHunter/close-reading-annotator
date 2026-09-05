@@ -127,8 +127,9 @@ python scripts/run_pipeline.py --input <原文.txt> --doc-id <doc_id> --output-d
 | `fill_spans.py` | 存量 craft 产物 span 回补（决策 18 后生成期已自动修复，此脚本仅用于旧产物迁移） |
 | `export_dataset.py` | 训练数据导出脱敏（版权合规） |
 | `span_locator.py` | 公共模块：`text.find` 定位 + 相似度回算（annotate_segment / fill_spans 共用） |
-| `lexicon_crosscheck.py`（v3.2） | DLUT 21 小类 / NRC 中文版 ↔ D19 覆盖度对照 + 候选词生成（`--dlut --nrc --out`；数据本地放置，见 README 八） |
+| `lexicon_crosscheck.py`（v3.3） | DLUT ↔ D19 覆盖度对照 + 候选词生成。**默认读仓库内清洗子集 `--subset`**（无外部数据即可跑）；子集缺失回退本地全量 `--dlut`；NRC 缺失自动跳过抽样。输出报告 `--out` |
 | `collect_lexicon_candidates.py`（v3.2） | WikiSkill 经验回写：产物自由情感词 ≥3 次 → 候选（`--dir` / `--files`；`--sop` 输出 RUNBOOK 修复表行） |
+| `build_dlut_subset.py`（v3.3） | 仅维护者：本地 DLUT 全量 xlsx → 清洗子集 `references/lexicon-dlut-subset.json`（`--dlut --out`） |
 
 ### 2.7 aggregation/ 聚合层 8 脚本（v2.9/v3.0，批注完成后运行）
 

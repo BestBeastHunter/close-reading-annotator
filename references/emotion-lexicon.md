@@ -116,7 +116,8 @@
 | 惊 | PC | 惊奇 | 惊讶 |
 
 > 代码说明：文献代码 NM=贬责，**官方数据版代码为 NN**（2026-09-05 对 xlsx 词频实证，7583 词）；两者同义，审查时都认。
-> 工具：`scripts/lexicon_crosscheck.py`（DLUT 覆盖度 + 候选生成）与 `scripts/collect_lexicon_candidates.py`（产物自由词 ≥3 次 → 候选）是本协议的自动执行端；候选清单产出后按上表人工裁决入表。
+> **v3.3.0（ADR-013）升级**：DLUT 已完整引入（清洗子集 `references/lexicon-dlut-subset.json` 随包分发），本表的**完整版**（21 小类 → 8 基元 → D19 词位逐级映射 + 使用规则 + 一致性注记）见 `references/emotion-taxonomy.md`——**该文件为本协议的唯一完整真源**，本表保留简表；修改映射必须两处同步。
+> 工具：`scripts/lexicon_crosscheck.py`（DLUT 覆盖度 + 候选生成，默认读仓库内子集）与 `scripts/collect_lexicon_candidates.py`（产物自由词 ≥3 次 → 候选）是本协议的自动执行端；候选清单产出后按上表人工裁决入表。
 
 ---
 

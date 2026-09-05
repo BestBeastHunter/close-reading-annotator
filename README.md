@@ -1,9 +1,9 @@
-# 精读批注 Skill v3.0.1
+# 精读批注 Skill v3.3.0
 
 > 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）与**全局聚合层**（实体/场景/角色弧线/故事类型/因果链/物件链/故事图/适配器）。
 > 适合：小说精读、故事拆解、叙事分析、文笔拆解、结构化语料构建。
 > 本仓库即**完整可运行的 Skill 包**——放到 TRAE / Cursor / Claude Code 的 skills 目录即可使用，也支持纯手动模式（把 `SKILL.md` 注入任意大模型）。
-> **版本（决策 22 三域解耦）**：skill_version = `3.1.0` / annotation schema_version = `2.9.0` / aggregation schema_version = `3.0.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`。
+> **版本（决策 22 三域解耦）**：skill_version = `3.3.0` / annotation schema_version = `2.9.0` / aggregation schema_version = `3.0.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`。
 
 ---
 
@@ -237,7 +237,7 @@ close-reading-annotator/
 
 | 版本域 | 声明点 | 值 |
 |--------|--------|-----|
-| **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.0.1` |
+| **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.3.0` |
 | **annotation schema_version** | `references/schema.md` §一 / 批注 JSON `schema_version` / annotate_segment.py / examples/llm_wrapper.py | `2.9.0` |
 | **aggregation schema_version** | `references/aggregation-schema.md` / `scripts/aggregation/*.py` | `3.0.0` |
 
@@ -245,6 +245,8 @@ close-reading-annotator/
 > 修改批注层枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**。修改聚合层产物字段：**先改 `references/aggregation-schema.md`，再改 `scripts/aggregation/*.py`**。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
 
 主要里程碑：
+- **v3.3.0**：DLUT 完整引入（T-032，ADR-013）——清洗子集 `references/lexicon-dlut-subset.json`（27,465→9,924 词）随包分发、`emotion-taxonomy.md` 三级映射表（21 小类→8 基元→D19 词位）、`build_dlut_subset.py` 生成器、crosscheck 默认读子集（一般使用者无需外部数据）
+- **v3.2.0**：一致性基础设施（T-031，ADR-012）——lexicon_crosscheck（DLUT/NRC 对照）、collect_lexicon_candidates（WikiSkill 经验回写）、Trace2Skill SoP、llm_wrapper 枚举约束
 - **v3.0.1**：聚合层修复轮（T-029）——adapters 字段名对齐（text2story/YARN/NCP 内容性字段全部非占位）、entity_resolution 输出 segment_ids 完整段集合（修复出场角色截断）、全脚本确定性（sorted + 平票 tie-break，复现性验证通过）、题材词表去书名化、is_reliable=None、文档收编（aggregation-schema.md 真源 + 决策 19-22）、版本号解耦 ADR
 - **v3.0.0**：生成器就绪——causal_graph（因果链）、object_chains（物件链）、story_graph（故事图合并）、adapters（text2story/YARN/NCP）
 - **v2.9.0**：全局聚合器 MVP——entity_resolution、scene_graph、character_arcs、story_type_inference
@@ -284,12 +286,12 @@ close-reading-annotator/
 
 1. **输入**：只批注公版作品、明确授权作品、或你自己的文本。对在版权期内的商业作品做批量批注仅供个人研究，不要分发原文片段。
 2. **输出**：`text_span.text` 会携带原文片段——公开发布批注产物前请谨慎；训练入库前必须跑 `export_dataset.py` 脱敏（「分析即销毁」：只留抽象结构化字段）。
-3. **外部词库数据（v3.2 / ADR-012，仅本地使用，不进本仓库）**：
-   > **一般使用者无需下载任何外部词库**——批注主链路（validate/annotate/checkpoint/merge）自包含，直接用内置 D19 50 词表与 D04 20 词枚举；DLUT/NRC 仅**词表维护者（Owner）**在触发词表演化协议（emotion-lexicon.md §四）时才需要，作为候选词对照数据源。
-   - **DLUT 大连理工《情感词汇本体》**（27,466 词，7 大类 21 小类，强度 1/3/5/7/9 五档）：从大连理工信息检索研究室（ir.dlut.edu.cn）或其公开镜像下载 xlsx；学术使用请引用论文《情感词汇本体的构造》（徐琳宏、林鸿飞等）。
-   - **NRC EmoLex**（14,182 词，8 基元+2 极性，40 语言）：从作者官网 https://www.saifmohammad.com/WebPages/AccessResource.htm 申请下载；**许可明文禁止再分发（Do not redistribute）**——本仓库不打包任何 NRC 数据，请自行本地放置。
-   - 建议放置位置：调用方工作区 `datasets/`（`lexicon_crosscheck.py` 默认从该处寻找）。
-   - 相关工具：`scripts/lexicon_crosscheck.py`（DLUT 21 小类 ↔ D19 覆盖度对照 + 候选词生成）、`scripts/collect_lexicon_candidates.py`（产物自由情感词 ≥3 次 → 候选，WikiSkill 经验回写）。
+3. **外部词库数据（v3.3 / ADR-013，DLUT 清洗子集已随包分发）**：
+   > **一般使用者无需下载任何外部词库**——批注主链路（validate/annotate/checkpoint/merge）自包含，直接用内置 D19 50 词表与 D04 20 词枚举；词表演化工具（`lexicon_crosscheck.py`）也已默认读仓库内 DLUT 清洗子集（`references/lexicon-dlut-subset.json`，9,924 词），开箱即用。
+   - **DLUT 大连理工《情感词汇本体》**（27,466 词，7 大类 21 小类，强度 1/3/5/7/9 五档）：本仓库已附**清洗子集**（词性 adj/verb/noun/adv + 词长 ≤2，含来源/许可/引用声明，由 `scripts/build_dlut_subset.py` 从官方 xlsx 生成）。**仅词表维护者（Owner）**需自行从大连理工信息检索研究室（ir.dlut.edu.cn）下载全量 xlsx 以重新生成子集；学术使用请引用论文《情感词汇本体的构造》（徐琳宏、林鸿飞等）。许可：仅供科研及教学使用、未经允许不得用于商业用途。
+   - **NRC EmoLex**（14,182 词，8 基元+2 极性，40 语言）：从作者官网 https://www.saifmohammad.com/WebPages/AccessResource.htm 申请下载；**许可明文禁止再分发（Do not redistribute）**——本仓库不打包任何 NRC 数据；中文单语场景下仅作体系参照（ADR-012/013），**一般使用者无需下载**。
+   - 建议放置位置（仅维护者需要）：调用方工作区 `datasets/`（`lexicon_crosscheck.py` 的 `--dlut`/`--nrc` 默认从该处寻找）。
+   - 相关工具：`scripts/lexicon_crosscheck.py`（DLUT ↔ D19 覆盖度对照 + 候选词生成，默认子集模式）、`scripts/build_dlut_subset.py`（全量 → 清洗子集生成器）、`scripts/collect_lexicon_candidates.py`（产物自由情感词 ≥3 次 → 候选，WikiSkill 经验回写）、`references/emotion-taxonomy.md`（21 小类三级映射表）。
 
 ---
 

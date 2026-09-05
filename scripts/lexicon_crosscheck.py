@@ -13,23 +13,27 @@ scripts/lexicon_crosscheck.py — 外部情感词库对照器（DLUT / NRC ↔ D
   4. 输出 Markdown 报告（--out），摘要打印到 stdout
 
 输入/输出：
-  输入：--dlut <xlsx>（默认 ../../../datasets/情感词汇本体/情感词汇本体.xlsx）
-        --nrc  <中文版 txt>（默认 ../../../datasets/NRC-Emotion-Lexicon/OneFilePerLanguage/Chinese-Simplified-NRC-EmoLex.txt）
+  输入：--subset <json>（默认 ../references/lexicon-dlut-subset.json，仓库内清洗子集，**优先使用**）
+        --dlut <xlsx>（默认 ../../../datasets/情感词汇本体/情感词汇本体.xlsx，子集缺失时回退全量）
+        --nrc  <中文版 txt>（默认 ../../../datasets/NRC-Emotion-Lexicon/OneFilePerLanguage/Chinese-Simplified-NRC-EmoLex.txt，缺失时跳过抽样）
         --d19  <emotion-lexicon.md>（默认 ../references/emotion-lexicon.md）
   输出：--out <report.md>；stdout 摘要
 
 依赖：
   Python 3.10+，纯 stdlib（zipfile/xml.etree.ElementTree/re/argparse）。
-  数据文件由用户从官方渠道下载，不随 skill 仓库分发（NRC 许可禁止再分发）。
+  v3.3.0（T-032-L3，ADR-013）：默认读仓库内 DLUT 清洗子集（一般使用者无需外部数据）；
+  NRC 文件缺失时抽样自动跳过（NRC 中文版仅体系参照，见 ADR-012/013）。
 
 版本：
-  v3.2.0（T-031-①，ADR-012）。配套词表演化协议见 references/emotion-lexicon.md §四。
+  v3.3.0（T-031-① + T-032-L3，ADR-012/ADR-013）。配套词表演化协议见 references/emotion-lexicon.md §四、
+  三级映射表见 references/emotion-taxonomy.md。
 """
 
 from __future__ import annotations
 
 import argparse
 import io
+import json
 import re
 import sys
 import zipfile
@@ -174,6 +178,22 @@ def load_nrc_cn(path: Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# 子集加载（v3.3.0：仓库内清洗子集为默认数据源）
+# ---------------------------------------------------------------------------
+def load_subset(path: Path) -> tuple[list[dict], dict]:
+    """读 lexicon-dlut-subset.json → records（cls 展开为 emotion）+ meta。"""
+    data = json.loads(io.open(path, encoding="utf-8").read())
+    records: list[dict] = []
+    for w in data.get("words", []):
+        for c in w.get("cls", []):
+            records.append({
+                "word": w["w"], "pos": w.get("pos", ""), "emotion": c,
+                "intensity": w.get("int", 0), "polarity": w.get("pol", 0),
+            })
+    return records, data.get("meta", {})
+
+
+# ---------------------------------------------------------------------------
 # D19 词表解析
 # ---------------------------------------------------------------------------
 def load_d19(path: Path) -> list[str]:
@@ -217,7 +237,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="DLUT/NRC 词库 ↔ D19 词表对照器（纯 stdlib）")
     root = Path(__file__).resolve().parents[3]  # 工作区根（scripts → close-reading-annotator → skills → 工作区）
     ap.add_argument("--dlut", type=Path, default=root / "datasets" / "情感词汇本体" / "情感词汇本体.xlsx",
-                    help="DLUT xlsx 路径（默认工作区 datasets）")
+                    help="DLUT xlsx 路径（默认工作区 datasets；仅子集缺失时回退使用）")
+    ap.add_argument("--subset", type=Path,
+                    default=Path(__file__).resolve().parent.parent / "references" / "lexicon-dlut-subset.json",
+                    help="DLUT 清洗子集 JSON 路径（默认 ../references/lexicon-dlut-subset.json，优先使用）")
     ap.add_argument("--nrc", type=Path,
                     default=root / "datasets" / "NRC-Emotion-Lexicon" / "OneFilePerLanguage" / "Chinese-Simplified-NRC-EmoLex.txt",
                     help="NRC 中文版 txt 路径")
@@ -230,14 +253,34 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=42, help="抽样随机种子（确定性）")
     args = ap.parse_args()
 
-    missing = [p for p in (args.dlut, args.nrc, args.d19) if not Path(p).exists()]
+    missing = [p for p in (args.d19,) if not Path(p).exists()]
     if missing:
         print(f"[ERROR] 文件不存在: {[str(m) for m in missing]}", file=sys.stderr)
         return 2
 
     d19_words = load_d19(args.d19)
-    dlut = load_dlut(args.dlut)
-    nrc = load_nrc_cn(args.nrc)
+
+    # ---- DLUT 数据源：子集优先，回退全量 ----
+    dlut: list[dict] = []
+    data_mode = "none"
+    dlut_label = "未提供"
+    if Path(args.subset).exists():
+        dlut, subset_meta = load_subset(args.subset)
+        data_mode = "subset"
+        dlut_label = f"lexicon-dlut-subset.json（{len(dlut):,} 词，仓库内）"
+    elif Path(args.dlut).exists():
+        dlut = load_dlut(args.dlut)
+        data_mode = "full"
+        dlut_label = f"{args.dlut.name}（{len(dlut):,} 词，本地全量）"
+    else:
+        print(f"[WARN] DLUT 子集与全量均不存在——覆盖度/候选词部分跳过。子集:{args.subset} 全量:{args.dlut}", file=sys.stderr)
+
+    # ---- NRC：缺失降级为跳过抽样 ----
+    nrc: list[dict] = []
+    nrc_label = "未提供"
+    if Path(args.nrc).exists():
+        nrc = load_nrc_cn(args.nrc)
+        nrc_label = f"{args.nrc.name}（{len(nrc):,} 词，本地）"
 
     # ---- 1) D19 命中率 ----
     dlut_words = {norm_word(r["word"]) for r in dlut}
@@ -301,9 +344,12 @@ def main() -> int:
 
     # ---- 报告 ----
     lines: list[str] = []
-    lines.append("# 外部词库 ↔ D19 词表对照报告（v3.2.0 / T-031-①）\n")
-    lines.append(f"- 数据文件：DLUT `{args.dlut.name}`（{len(dlut):,} 词）｜NRC 中文版 `{args.nrc.name}`（{len(nrc):,} 词）｜D19 词表 {len(d19_words)} 词")
-    lines.append(f"- 说明：数据文件仅本地使用、不进 git；DLUT 分类代码按 7 大类 21 小类标准映射。\n")
+    lines.append("# 外部词库 ↔ D19 词表对照报告（v3.3.0 / T-032-L3 / ADR-013）\n")
+    lines.append(f"- DLUT 数据源：{dlut_label}（模式={data_mode}）｜NRC 中文版：{nrc_label}｜D19 词表 {len(d19_words)} 词")
+    if data_mode == "subset":
+        lines.append(f"- 子集来源：{subset_meta.get('source', '')}（{subset_meta.get('citation', '')}）。子集仅作词表演化参考数据源，D19 50 词表仍为 validate 唯一真源。")
+    else:
+        lines.append("- 说明：全量数据文件仅本地使用、不进 git；DLUT 分类代码按 7 大类 21 小类标准映射（见 references/emotion-taxonomy.md）。\n")
     lines.append("## 一、D19 词级命中率（词面精确匹配）\n")
     lines.append(f"| 指标 | 值 |")
     lines.append(f"|------|----|")
