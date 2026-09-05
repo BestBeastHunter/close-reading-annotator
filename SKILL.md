@@ -1,19 +1,19 @@
 ---
 name: close-reading-annotator
-version: 3.8.0
-description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
+version: 3.8.2
+description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言、craft层自动修复(v3.8.1)、三项校准功能(v3.8.2：quality_score/confidence/DLUT交叉验证)。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v3.8.0
+# 四层精读批注 Skill v3.8.2
 
 对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
 **核心原则**：每段每层独立落盘 → 断点续跑 → Layer 4 二阶段执行 → 四层合并输出 → 聚合层拼图出全局叙事结构。
 
 > **版本声明（决策 22：三版本域解耦）**：
-> - **skill version** = `3.8.0`（本文件 frontmatter = README = RUNBOOK）。v3.8 叙事技法分析（ADR-014，T-037）：聚合层第 10 脚本 writing_techniques.py（转场技巧+悬念设置+蒙太奇手法+钩子类型，4 子模块规则粗筛，基于 D01/D06/D08/cross_refs 序列模式匹配）；v3.7 叙事结构分析（ADR-014，T-036）；v3.6 原子化扩展字段（ADR-014，T-035）；v3.5 精细化切分器/重排（ADR-014，T-034）；v3.4 前置双模块（ADR-014，T-033）；v3.3 DLUT 完整引入（ADR-013，T-032）；v3.2 一致性基础设施（ADR-012，T-031）；v3.1 词表手术（ADR-011，T-030）。
+> - **skill version** = `3.8.2`（本文件 frontmatter = README = RUNBOOK）。v3.8.2 三项校准功能（ADR-017，T-042/T-043/T-044）：①quality_score 校准（基于 Craft 层 D13-D17 加权评分，基础分40%+数量分40%+多样性分20%）；②confidence 信号驱动重算（5信号加权：校验通过30%+字段完整性25%+引文精度20%+枚举合法性15%+跨层一致性10%，confidence_method=recalibrated_v382）；③DLUT 弱信号交叉验证（基于 DLUT 子集 9901 词对 segment 原文做情感词频统计，与 D19 主情感对比，双轨存储 _baseline_emotion 字段，平均一致率 88.7%）。v3.8.1 工程化加固（ADR-016，T-038/T-039/T-040）：span_locator 模糊匹配增强 + annotate_segment --auto-fix + SKILL.md 枚举值速查表。v3.8 叙事技法分析（ADR-014，T-037）；v3.7 叙事结构分析（ADR-014，T-036）；v3.6 原子化扩展字段（ADR-014，T-035）；v3.5 精细化切分器/重排（ADR-014，T-034）；v3.4 前置双模块（ADR-014，T-033）；v3.3 DLUT 完整引入（ADR-013，T-032）；v3.2 一致性基础设施（ADR-012，T-031）；v3.1 词表手术（ADR-011，T-030）。
 > - **annotation schema_version** = `2.10.0`（`references/schema.md` §一 = 批注 JSON `schema_version` = annotate_segment.py / examples/llm_wrapper.py）。v2.10.0 新增 5 个可选字段（D07._narrator_identity / D08._time_type / D08._narrative_level / D06._techniques / D12_narrative_mode），全部可选允许 null。**注意**：批注数据 schema 与 skill 版本解耦，skill 升 3.x 不代表批注字段变更。
 > - **aggregation schema_version** = `3.1.0`（`references/aggregation-schema.md` = `scripts/aggregation/*.py`）。v3.7 新增 narrative_structure.json 产物。
 > - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0 / 2.8.0 / 2.9.0 / 2.10.0`（旧产物版本分支豁免，不迁移；v2.10.0 新增可选字段缺失时视为 null 放行）。
@@ -331,6 +331,29 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 | **L3 文笔层** | D13 佳句 / D14 修辞 / D15 意象 / D16 词汇 / D17 句式 / D18 语言指纹 | ⚡ 按需 | `{doc_id}_craft.jsonl` |
 | **L4 跨段层** | 伏笔-回收 / 因果 / 时序 / 对比 / 呼应（双引用）| 🔁 二阶段整体一次 | `{doc_id}_cross_segment.jsonl` |
 
+### 4.0 枚举值速查表（v3.8.1 新增，LLM 生成批注时一眼可查）
+
+> **唯一真源**：`references/schema.md`。本表为速查引用，改枚举先改 schema.md 再同步本表。
+
+| 维度 | 字段 | 合法枚举值 |
+|:----:|:----|:----------|
+| **D01** | 叙事功能 | `背景铺垫` / `激励事件` / `上升行动` / `高潮` / `下降行动` / `结局` / `过渡` / `插叙` / `倒叙` / `尾声` |
+| **D04.core** | 情绪基调（20词，v2.9.0） | `信任` / `压抑` / `厌恶` / `喜悦` / `复仇` / `嫉妒` / `孤独` / `屈辱` / `希望` / `平静` / `恐惧` / `悬疑` / `悲伤` / `惊讶` / `愤怒` / `渴望` / `焦虑` / `绝望` / `羞耻` / `释然` |
+| **D04.polarity** | 极性 | `positive` / `negative` / `neutral` / `mixed` |
+| **D06.type** | 信息控制 | `揭示` / `隐藏` / `误导` / `复合` |
+| **D07.type** | 叙事视角 | `第一人称` / `第三人称` / `第二人称` / `多视角` / `第一人称旁观者` / `不可靠叙述者` / `全知视角` / `有限视角` |
+| **D10** | 对话功能 | `推进情节` / `揭示性格` / `传递信息` / `制造冲突` / `缓和气氛` / `表达情感` / `暗示主题` / `过渡衔接` |
+| **D11** | 描写类型（非空数组） | `外貌描写` / `动作描写` / `语言描写` / `心理描写` / `环境描写` / `细节描写` / `场面描写` / `神态描写` |
+| **D14.type** | 修辞手法 | `比喻` / `拟人` / `排比` / `反讽` / `通感` / `夸张` / `对比` / `象征` |
+| **D15.type** | 意象类型 | `自然意象` / `器物意象` / `人体意象` / `色彩意象` / `抽象意象` |
+| **D16.pos** | 词汇词性 | `动词` / `形容词` / `副词` / `名词` |
+| **D17.type** | 句式类型 | `排比` / `长短交替` / `倒装` / `独词句` / `对偶` / `设问` |
+| **D19.primary** | 主情感（50词，v2.9.0） | 见 `references/emotion-lexicon.md` §二（50词全量表）；常用：`喜悦`/`悲伤`/`愤怒`/`恐惧`/`惊讶`/`期待`/`厌恶`/`信任`/`依恋`/`绝望`/`焦虑`/`孤独`/`羞耻`/`渴望`/`嫉妒`/`迷茫`/`感动`/`得意`/`悲欣交集`/`爱恨交织`/`苦乐参半`/`克制中的温情`/`冷峻中的悲悯`/`叙述性冷漠`/`反讽性平静` |
+| **D19.polarity** | 情感极性 | `positive` / `negative` / `neutral` / `mixed` |
+| **cross_segment.relation_type** | 跨段关系 | `伏笔-回收` / `因果` / `时序` / `对比` / `呼应` |
+
+> **v3.8.1 自动修复**：craft 层（D13-D17）引文校验失败时，`annotate_segment.py` 默认开启 `--auto-fix`，自动调用 `span_locator.fuzzy_find_span` 做 4 级匹配（精确→空白归一→去标点→模糊相似度≥0.85），修正引文文本和 span 后重试。用 `--no-auto-fix` 可关闭。
+
 ### 4.1 Layer 1 易错点（必做）
 
 | 维度 | 类型 | 关键约束 | 易错点 |
@@ -467,6 +490,8 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 | 版本 | 日期 | 变化 |
 |------|------|------|
 | **3.3.0** | 2026-09-05 | **DLUT 完整引入（ADR-013，T-032）**：①新建 `scripts/build_dlut_subset.py`——从本地全量 xlsx（27,465 词）按文学精读适配规则清洗（词性 adj/verb/noun/adv + 词长 ≤2 + 义项合并），生成 `references/lexicon-dlut-subset.json`（9,924 词，含来源/许可/引用声明，随包分发，D19 命中率 33/50 与全量一致）；②新建 `references/emotion-taxonomy.md`——DLUT 21 小类 → Plutchik 8 基元 → D19 词位三级映射表（NN/NM 双认 + NG 归类注记，词表演化归约裁决表）；③`scripts/lexicon_crosscheck.py` 升级 v3.3——**默认读仓库内子集**（--subset），子集缺失回退本地全量 xlsx（--dlut），NRC 文件缺失自动跳过抽样（降级不报错），一般使用者无需任何外部数据即可跑词表演化工具；④README §八.3 重写（子集已分发 + 维护者才需全量 + NRC 仍禁再分发）。 |
+| **3.8.2** | 2026-09-05 | **三项校准功能（ADR-017，T-042/T-043/T-044）**：①`scripts/calibrate_quality.py`——quality_score 校准，基于 Craft 层 D13-D17 加权评分（D13佳句30%+D14修辞20%+D15意象20%+D16词汇15%+D17句式15%），评分公式=基础分40%+数量分40%+多样性分20%，回写到批注 JSONL 的 `_quality_score` 字段；②`scripts/recalibrate_confidence.py`——confidence 信号驱动重算，基于 5 个确定性信号加权（校验通过30%+必填字段完整性25%+引文匹配精度20%+枚举值合法性15%+跨层一致性10%），回写到 `confidence.overall`，`confidence_method=recalibrated_v382`；③`scripts/cross_validate_emotion.py`——DLUT 弱信号交叉验证，基于 DLUT 子集（v3.3 已引入，9901 词，随包分发）对 segment 原文做情感词频统计，计算 DLUT 推断的主导情感（褒义/贬义/中性），与 D19 主情感的 polarity 对比，双轨存储 `_baseline_emotion` 字段（保留原 D19 主情感）。annotation/aggregation schema 不变（三项均为后处理校准，新增可选元字段 `_quality_score`/`_baseline_emotion`，不破坏既有字段）。**金标准 20 部验证结果**：quality_score 分布合理（高分61.6/中分47.6/基础分44.6，文学质量高的作品得分更高）；confidence emotion 层有 1-7 个唯一值（跨层一致性差异）；DLUT 交叉验证平均一致率 88.7%（超过 70% 目标，14 部作品 100% 一致）。**背景**：T-020 backlog 中规划的三项校准功能（原计划需要人工标注集），因 T-004 金标准 20 部全量批注完成后有了 122 段四层批注作为锚点集，可以实现确定性校准（无需人工标注集）。原计划的 cnsenti 弱信号调整为基于 DLUT 子集的情感词频弱信号交叉验证。 |
+| **3.8.1** | 2026-09-05 | **工程化加固（ADR-016，T-038/T-039/T-040）**：①`span_locator.py` 模糊匹配增强——在原有①精确子串②空白归一化子串之后，新增③去标点归一化子串④SequenceMatcher 相似度≥0.85 模糊匹配，自动定位最相似子串并修正引文文本，返回 {span, text, match_level, similarity, warning}；`repair_craft_row` 升级为使用 fuzzy_find_span，模糊匹配时自动修正引文文本并记录警告；②`annotate_segment.py` 新增 `--auto-fix`/`--no-auto-fix` CLI 参数（默认开启），craft 层校验失败时自动调用 fuzzy_find_span 修正引文和 span 后重试，兑现 SKILL.md 长期声称的"校验失败自动重试3次"承诺；③SKILL.md 新增 §4.0 枚举值速查表——集中列出 D01/D04/D06/D07/D10/D11/D14/D15/D16/D17/D19/cross_segment 共 15 个维度的全部合法枚举值，LLM 生成批注时一眼可查，无需翻 schema.md。annotation/aggregation schema 不变（纯工程化加固，零 schema 变更）。**背景**：T-004 金标准 20 部全量批注执行中，craft 层大规模失败（月牙儿 34/36 失败），根因是 LLM 写的引文有细微偏差（多标点/少字/概括词），原 span_locator 只支持精确+空白归一两级匹配，无法修复；同时枚举值散落在 schema.md 各处，LLM 容易用错枚举值（D14='细节'/'反复'、D15='动物意象'等）。修复后预期 craft 层失败率从 ~50% 降至 <5%。 |
 | **3.8.0** | 2026-09-05 | **叙事技法分析（ADR-014，T-037）**：聚合层第 10 脚本 `writing_techniques.py`，产出 writing_techniques.json。4 子模块规则粗筛（同因果链"规则粗筛+LLM精排"架构）：①转场技巧（时间转场=年份差≥2或季节变化/空间转场=地点关键词变化/细节过渡=背景铺垫→过渡→上升行动/悬念转场=高潮转折→下降背景硬切）；②悬念设置（设疑法=D06隐藏含疑问词/连环设悬=连续≥3段隐藏/伏笔回收对=cross_refs/悬念留白=隐藏后5段内无揭示）；③蒙太奇手法（平行蒙太奇=5段窗口内地点变化≥3/交叉蒙太奇=D05≥4且D01快速切换/对比蒙太奇=相邻段D04极性相反且强度≥5）；④钩子类型（悬念钩子=段尾D06隐藏或D01转折/行动钩子=D05≥4或D01高潮/情感钩子=D04 intensity≥7/场景钩子=段首地点关键词变化）。综合技法评估（技法密度/写作风格/主导技法）。aggregation schema 不变（3.1.0，新增产物同版本）。annotation schema 不变（纯聚合新增）。 |
 | **3.7.0** | 2026-09-05 | **叙事结构分析（ADR-014，T-036）**：聚合层第 9 脚本 `scripts/aggregation/narrative_structure.py`，产出 narrative_structure.json。P0：弗雷塔格五幕（从 D01 序列按幕转换点推导，六幕区间+关键转折点+结构健康度）+ 热奈特聚焦（从 D07.type 统计+_narrator_identity，主导聚焦+切换率+复杂度+叙述者可靠性）；P1：叙事时间线（从 D08.time+_time_type，时间节点+时间跳跃+时间结构类型，旧产物降级为关键词推断）+ 救猫咪节拍（简化 14 节拍，位置百分比定位+D01 信号验证）；P2：叙事层级图（从 D08._narrative_level，旧产物降级标注）。aggregation schema 3.0→3.1。annotation schema 不变（纯聚合新增）。 |
 | **3.6.0** | 2026-09-05 | **原子化扩展字段（ADR-014，T-035）**：annotation schema 2.9.0→2.10.0，新增 5 个可选字段——①`D07._narrator_identity`（叙述者身份 ID，跨段追踪）；②`D08._time_type`（linear/flashback/flashforward/analepsis/prolepsis 时间结构类型）；③`D08._narrative_level`（1/2/3+ 叙事层级）；④`D06._techniques`（7 种信息控制技巧数组：延迟揭示/选择性披露/视角遮蔽/不可靠叙述者误导/信息过载/误导性伏笔/悬念留白）；⑤`D12_narrative_mode`（热奈特叙事话语模式：场景/概述/停顿/省略/摘要 + density + is_summary + is_scene）。全部可选允许 null，LLM 无法判断时 null；旧产物零迁移（校验器缺失字段视为 null 放行）。schema.md/validate_output.py/templates 全链同步。设计意图：这 5 个字段是 v3.7 叙事结构分析（聚合层）的原子信号前置依赖。 |

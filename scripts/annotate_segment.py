@@ -307,11 +307,13 @@ def _validate_obj(obj: dict, layer: str) -> tuple[list[str], list[str]]:
     return errs, warns
 
 
-def _commit_with_retry(seg: dict, layer: str, obj: dict) -> tuple[bool, str]:
+def _commit_with_retry(seg: dict, layer: str, obj: dict, auto_fix: bool = True) -> tuple[bool, str]:
     """校验（失败自动 span 修复重试 ≤3 轮）。返回 (ok, 说明文本)。
 
     说明文本供调用方打印；失败时内容包含最后一次校验错误详情。
     落盘动作由调用方（_commit_after_validate）在成功返回后执行。
+
+    v3.8.1：新增 auto_fix 参数，控制 craft 层校验失败时是否自动修复 span/引文。
     """
     # 校验 + 自动修复循环
     last_errs: list[str] = []
@@ -327,11 +329,13 @@ def _commit_with_retry(seg: dict, layer: str, obj: dict) -> tuple[bool, str]:
             )
             return True, msg
         # 仅 craft 层可自动修复（span 缺失/漂移类）；其余层不尝试修复
-        if layer == "craft":
-            changed, unmatched = repair_craft_row(obj)
+        if layer == "craft" and auto_fix:
+            changed, unmatched, warnings = repair_craft_row(obj)
             if changed:
                 repaired_once = True
                 print(f"  ↻ attempt {attempt} 校验失败 → span 自动回算修正 {changed} 条，重试")
+                for w in warnings:
+                    print(f"    ⚠ {w}")
                 continue
         break
     detail = "\n".join(f"   ✖ {e}" for e in last_errs) or "(无 error 明细)"
@@ -420,6 +424,10 @@ def main() -> int:
                    help="批量模式：处理 checkpoint 未完成的 (segment, layer)。需与 --llm-cmd 或 --input-json 连用")
     p.add_argument("--force", action="store_true",
                    help="忽略 checkpoint，强制重跑（层 JSONL 幂等 upsert，不产生重复行）")
+    p.add_argument("--auto-fix", dest="auto_fix", action="store_true", default=True,
+                   help="craft 层校验失败时自动修复 span/引文（v3.8.1 默认开启）")
+    p.add_argument("--no-auto-fix", dest="auto_fix", action="store_false",
+                   help="关闭 craft 层自动修复（校验失败直接退出）")
     args = p.parse_args()
 
     layers = [l.strip() for l in args.layers.split(",") if l.strip() in ALL_LAYERS]
@@ -566,7 +574,7 @@ def _commit_after_validate(
     base_dir: Path,
 ) -> tuple[bool, str]:
     """统一提交路径：校验（自动修复重试 ≤3）→ 落盘 → checkpoint 登记。返回 (ok, msg)。"""
-    ok, msg = _commit_with_retry(seg, layer, obj)
+    ok, msg = _commit_with_retry(seg, layer, obj, auto_fix=getattr(args, "auto_fix", True))
     if not ok:
         return False, msg
     out_path = _write_layer(out_dir, args.doc_id, layer, obj)
