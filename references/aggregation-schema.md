@@ -9,10 +9,10 @@
 
 ## 〇、版本与命名约定
 
-- 聚合产物文件名：`{doc_id}_{entity_graph|scene_graph|character_arcs|story_metadata|narrative_structure|causal_graph|object_chains|story_graph}.json`，适配器产物 `{doc_id}_{text2story|yarn|ncp}.json`。
+- 聚合产物文件名：`{doc_id}_{entity_graph|scene_graph|character_arcs|story_metadata|narrative_structure|writing_techniques|causal_graph|object_chains|story_graph}.json`，适配器产物 `{doc_id}_{text2story|yarn|ncp}.json`。
 - 所有产物顶层含 `doc_id` / `schema_version` / `generated_at`（ISO8601）。
 - 确定性纪律（v3.0.1）：任何集合转列表必须 `sorted(set(...))`；平票取先出现者——禁止依赖 `set()` 迭代顺序（PYTHONHASHSEED 漂移，审计 P2-3）。
-- **v3.1.0 变更（ADR-014，T-036）**：新增 `narrative_structure.json` 产物（叙事结构分析：弗雷塔格五幕+热奈特聚焦+叙事时间线+救猫咪节拍+叙事层级），由 `scripts/aggregation/narrative_structure.py` 产出。其余 8 个聚合产物 schema 不变（3.0.0）。
+- **v3.1.0 变更（ADR-014，T-036/T-037）**：新增 `narrative_structure.json`（叙事结构分析，v3.7）和 `writing_techniques.json`（叙事技法分析，v3.8）两个产物。其余 8 个聚合产物 schema 不变（3.0.0）。
 
 ---
 
@@ -294,6 +294,87 @@
 | `dominant_level` | string | 主导叙事层级 |
 | `derivation_method` | string | `_narrative_level_field`（新字段填充时）/ `field_not_filled（降级：_narrative_level 未填充，无法分析叙事层级）` |
 | `note` | string | 旧产物缺失 _narrative_level 时的降级说明；建议用 v3.6+ 重新批注后再分析 |
+
+---
+
+## 十、writing_techniques.json（叙事技法分析，v3.8 新增 / writing_techniques.py）
+
+> **定位**：基于逐段 structure/interpretation 批注 + cross_segment 关系的全局叙事技法模式识别，纯规则引擎零 LLM 调用（同因果链"规则粗筛+LLM精排"架构）。4 子模块：转场技巧 / 悬念设置 / 蒙太奇手法 / 钩子类型，加综合技法评估。
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `doc_id` / `schema_version` / `generated_at` / `generator` / `total_segments` | 顶层元数据 | schema_version=3.1.0 |
+| `transitions` | object | 转场技巧分析（见 10.1） |
+| `suspense` | object | 悬念设置分析（见 10.2） |
+| `montage` | object | 蒙太奇手法分析（见 10.3） |
+| `hooks` | object | 钩子类型分析（见 10.4） |
+| `overall_assessment` | object | 综合技法评估（见 10.5） |
+
+### 10.1 transitions（转场技巧）
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `total_transitions` | int | 转场总次数 |
+| `time_transitions` | int | 时间转场次数（年份差≥2 或季节变化） |
+| `space_transitions` | int | 空间转场次数（地点关键词变化） |
+| `detail_transitions` | int | 细节过渡次数（背景铺垫→过渡→上升行动） |
+| `suspense_transitions` | int | 悬念转场次数（高潮/转折→下降/背景硬切） |
+| `transition_density` | float | 转场密度（total/(segments-1)） |
+| `transitions` | array | 转场详情（最多 50 条，每条含 from/to segment_id + transition_types[]） |
+| `truncated` | bool | 详情是否被截断 |
+
+### 10.2 suspense（悬念设置）
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `total_hidden_segments` | int | D06 隐藏段总数 |
+| `setup_questions_count` | int | 设疑法次数（D06 隐藏 + content 含疑问词） |
+| `serial_suspense_count` | int | 连环设悬次数（连续≥3 段隐藏） |
+| `unresolved_suspense_count` | int | 悬念留白次数（隐藏后 5 段内无揭示） |
+| `foreshadow_payoff_pairs` | int | 伏笔-回收对数（cross_refs relation_type=伏笔-回收） |
+| `suspense_intensity` | string | `low` / `moderate` / `high` |
+| `setup_questions` | array | 设疑法详情（最多 20 条） |
+| `serial_suspense_runs` | array | 连环设悬详情（最多 10 条） |
+| `unresolved_suspense` | array | 悬念留白详情（最多 20 条） |
+| `foreshadow_pairs_detail` | array | 伏笔-回收对详情（最多 20 条） |
+| `derivation_method` | string | `D06_hide_pattern_sequence + cross_refs_foreshadow_payoff` |
+
+### 10.3 montage（蒙太奇手法）
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `parallel_montage_count` | int | 平行蒙太奇次数（5 段窗口内地点变化≥3） |
+| `cross_montage_count` | int | 交叉蒙太奇次数（D05≥4 且 D01 在上升/高潮/转折间≤3 段内切换≥2） |
+| `contrast_montage_count` | int | 对比蒙太奇次数（相邻段 D04 polarity 相反且 intensity≥5） |
+| `total_montage_instances` | int | 蒙太奇总次数 |
+| `montage_density` | float | 蒙太奇密度（total/segments） |
+| `parallel_montage` | array | 平行蒙太奇详情（最多 20 条，含 start/end segment_index + location_changes） |
+| `cross_montage` | array | 交叉蒙太奇详情（最多 20 条） |
+| `contrast_montage` | array | 对比蒙太奇详情（最多 20 条） |
+| `derivation_method` | string | `sliding_window_location_change + D01_D05_sequence_pattern + D04_polarity_contrast` |
+
+### 10.4 hooks（钩子类型）
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `total_hooked_segments` | int | 含钩子的段总数（去重） |
+| `suspense_hooks_count` | int | 悬念钩子数（段尾 D06 隐藏 或 D01=转折） |
+| `action_hooks_count` | int | 行动钩子数（D05≥4 或 D01=高潮） |
+| `emotion_hooks_count` | int | 情感钩子数（D04 intensity≥7） |
+| `scene_hooks_count` | int | 场景钩子数（段首地点关键词与上段不同） |
+| `hook_density` | float | 钩子密度（total/segments） |
+| `suspense_hook_segments` / `action_hook_segments` / `emotion_hook_segments` / `scene_hook_segments` | array | 各类钩子的段 ID 列表（各最多 30 条） |
+| `derivation_method` | string | `segment_tail_D01_D04_D05_D06 + segment_head_location_keyword_change` |
+
+### 10.5 overall_assessment（综合技法评估）
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `total_technique_instances` | int | 技法实例总数（transitions + suspense + montage + hooks） |
+| `technique_density_per_segment` | float | 每段技法密度（total/segments） |
+| `writing_style` | string | `技法密集型（高技巧写作）`（密度≥3.0）/ `技法均衡型（标准叙事）`（密度≥1.5）/ `技法简约型（白描风格）`（密度<1.5） |
+| `dominant_techniques` | array | 主导技法排序（按实例数降序，如 `["hooks", "transitions", "montage", "suspense"]`） |
+| `note` | string | 规则粗筛结果，后续可用 LLM 精排（同因果链架构） |
 
 ---
 

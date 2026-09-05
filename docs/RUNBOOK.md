@@ -2,7 +2,7 @@
 
 > **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
 > 完整 schema / 枚举 / 设计决策见 `references/schema.md`（批注层）、`references/aggregation-schema.md`（聚合层）、`SKILL.md`、工作区 `docs/design-decisions.md`。
-> 版本：skill v3.7.0 / annotation schema 2.10.0 / aggregation schema 3.1.0（决策 22 三域解耦）
+> 版本：skill v3.8.0 / annotation schema 2.10.0 / aggregation schema 3.1.0（决策 22 三域解耦）
 
 ---
 
@@ -153,9 +153,9 @@ python scripts/run_pipeline.py --input <原文.txt> --doc-id <doc_id> --output-d
 | `quant_analyzer.py`（v3.4） | **计算文学分析（Phase 1.5，批注前）**：逐 segment 计算句长/TTR/词性/对话占比/标点/情感词频（DLUT 子集）/五感密度，产出 quant_metrics.jsonl。`--segments <segments.jsonl> --out <quant.jsonl>`；jieba 可选，缺失自动降级为 DLUT 最大正向匹配 |
 | `reshape_segments.py`（v3.5） | **精细化切分重排（Phase 1.25，可选）**：读粗切 segments + scene_boundary.json（Agent 场景边界判断）+ 原始文本 → final_segments.jsonl（场景级，scene_NNN 编号）+ 新旧 ID 映射表。`--segments --boundaries --original --doc-id --output-dir`；章节边界自动识别，无 boundary 文件时仅按章节合并 |
 
-### 2.7 aggregation/ 聚合层 9 脚本（v2.9/v3.0/v3.7，批注完成后运行）
+### 2.7 aggregation/ 聚合层 10 脚本（v2.9/v3.0/v3.7/v3.8，批注完成后运行）
 
-> 全链路 <2s/本，纯规则零依赖。Schema 真源：`references/aggregation-schema.md`。建议按 ①→⑨ 顺序跑；缺输入时各脚本自行报错，可逐脚本重跑（覆盖写，幂等）。
+> 全链路 <2s/本，纯规则零依赖。Schema 真源：`references/aggregation-schema.md`。建议按 ①→⑩ 顺序跑；缺输入时各脚本自行报错，可逐脚本重跑（覆盖写，幂等）。
 
 | # | 脚本 | 必填参数 | 产出 |
 |:-:|------|---------|------|
@@ -164,10 +164,11 @@ python scripts/run_pipeline.py --input <原文.txt> --doc-id <doc_id> --output-d
 | ③ | `character_arcs.py` | `--segments --structure --emotion --entity-graph --doc-id --output-dir` | `{doc}_character_arcs.json` |
 | ④ | `story_type_inference.py` | `--segments --structure [--interpretation] [--emotion] --doc-id --output-dir` | `{doc}_story_metadata.json` |
 | ⑤ | `narrative_structure.py`（v3.7 新增） | `--structure --doc-id --output-dir` | `{doc}_narrative_structure.json`（弗雷塔格五幕+热奈特聚焦+叙事时间线+救猫咪节拍） |
-| ⑥ | `causal_graph.py` | `--cross-segment --structure --doc-id --output-dir` | `{doc}_causal_graph.json` |
-| ⑦ | `object_chains.py` | `--craft --doc-id --output-dir` | `{doc}_object_chains.json` |
-| ⑧ | `story_graph.py` | `--aggregation-dir --doc-id --output-dir` | `{doc}_story_graph.json`（合并①-⑦） |
-| ⑨ | `adapters.py` | `--story-graph --doc-id --output-dir [--formats text2story,yarn,ncp]` | `{doc}_{text2story,yarn,ncp}.json` |
+| ⑥ | `writing_techniques.py`（v3.8 新增） | `--structure --interpretation [--cross-segment] --doc-id --output-dir` | `{doc}_writing_techniques.json`（转场+悬念+蒙太奇+钩子） |
+| ⑦ | `causal_graph.py` | `--cross-segment --structure --doc-id --output-dir` | `{doc}_causal_graph.json` |
+| ⑧ | `object_chains.py` | `--craft --doc-id --output-dir` | `{doc}_object_chains.json` |
+| ⑨ | `story_graph.py` | `--aggregation-dir --doc-id --output-dir` | `{doc}_story_graph.json`（合并①-⑧） |
+| ⑩ | `adapters.py` | `--story-graph --doc-id --output-dir [--formats text2story,yarn,ncp]` | `{doc}_{text2story,yarn,ncp}.json` |
 
 **典型一条链**（moon 示例，`AGG=scripts/aggregation`）：
 
@@ -185,6 +186,10 @@ python $AGG/story_type_inference.py --segments $OUT/${DOC}_segments.jsonl --stru
     --doc-id $DOC --output-dir $OUT/aggregation
 python $AGG/narrative_structure.py --structure $OUT/${DOC}_structure.jsonl \
     --doc-id $DOC --output-dir $OUT/aggregation
+python $AGG/writing_techniques.py --structure $OUT/${DOC}_structure.jsonl \
+    --interpretation $OUT/${DOC}_interpretation.jsonl \
+    --cross-segment $OUT/${DOC}_cross_segment.jsonl \
+    --doc-id $DOC --output-dir $OUT/aggregation
 python $AGG/causal_graph.py --cross-segment $OUT/${DOC}_cross_segment.jsonl --structure $OUT/${DOC}_structure.jsonl \
     --doc-id $DOC --output-dir $OUT/aggregation
 python $AGG/object_chains.py --craft $OUT/${DOC}_craft.jsonl --doc-id $DOC --output-dir $OUT/aggregation
@@ -193,7 +198,7 @@ python $AGG/adapters.py --story-graph $OUT/aggregation/${DOC}_story_graph.json \
     --doc-id $DOC --output-dir $OUT/aggregation/adapters
 ```
 
-**常见坑**：① ⑥缺 `--cross-segment`（需先跑 Phase 3）会直接报错退出；② ⑨的 `participants` 为空≠bug——frontmatter/过渡段无角色出场是合法数据特性（占全部场景 ≤10%）；③ 聚合产物含 `generated_at` 时间戳，字节级对比产物时先排除该字段；④ ⑤narrative_structure 对旧产物（无 v3.6 新字段 _time_type/_narrative_level/_narrator_identity）自动降级为从 D08.time 文本关键词推断，输出中标注 derivation_method。
+**常见坑**：① ⑦缺 `--cross-segment`（需先跑 Phase 3）会直接报错退出；② ⑩的 `participants` 为空≠bug——frontmatter/过渡段无角色出场是合法数据特性（占全部场景 ≤10%）；③ 聚合产物含 `generated_at` 时间戳，字节级对比产物时先排除该字段；④ ⑤narrative_structure 对旧产物（无 v3.6 新字段 _time_type/_narrative_level/_narrator_identity）自动降级为从 D08.time 文本关键词推断，输出中标注 derivation_method；⑤ ⑥writing_techniques 的转场/蒙太奇/场景钩子使用提取的地点关键词（extract_location_keyword）而非完整 D08.space 文本，避免文本微变化导致虚高；时间转场阈值为年份差≥2 或季节变化；⑥writing_techniques 为规则粗筛，后续可用 LLM 精排（同因果链架构）。
 
 ---
 

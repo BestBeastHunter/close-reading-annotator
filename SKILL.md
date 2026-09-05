@@ -1,19 +1,19 @@
 ---
 name: close-reading-annotator
-version: 3.7.0
+version: 3.8.0
 description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v3.7.0
+# 四层精读批注 Skill v3.8.0
 
 对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
 **核心原则**：每段每层独立落盘 → 断点续跑 → Layer 4 二阶段执行 → 四层合并输出 → 聚合层拼图出全局叙事结构。
 
 > **版本声明（决策 22：三版本域解耦）**：
-> - **skill version** = `3.7.0`（本文件 frontmatter = README = RUNBOOK）。v3.7 叙事结构分析（ADR-014，T-036）：聚合层第 9 脚本 narrative_structure.py（弗雷塔格五幕+热奈特聚焦+叙事时间线+救猫咪节拍+叙事层级，aggregation schema 3.0→3.1）；v3.6 原子化扩展字段（ADR-014，T-035）；v3.5 精细化切分器/重排（ADR-014，T-034）；v3.4 前置双模块（ADR-014，T-033）；v3.3 DLUT 完整引入（ADR-013，T-032）；v3.2 一致性基础设施（ADR-012，T-031）；v3.1 词表手术（ADR-011，T-030）。
+> - **skill version** = `3.8.0`（本文件 frontmatter = README = RUNBOOK）。v3.8 叙事技法分析（ADR-014，T-037）：聚合层第 10 脚本 writing_techniques.py（转场技巧+悬念设置+蒙太奇手法+钩子类型，4 子模块规则粗筛，基于 D01/D06/D08/cross_refs 序列模式匹配）；v3.7 叙事结构分析（ADR-014，T-036）；v3.6 原子化扩展字段（ADR-014，T-035）；v3.5 精细化切分器/重排（ADR-014，T-034）；v3.4 前置双模块（ADR-014，T-033）；v3.3 DLUT 完整引入（ADR-013，T-032）；v3.2 一致性基础设施（ADR-012，T-031）；v3.1 词表手术（ADR-011，T-030）。
 > - **annotation schema_version** = `2.10.0`（`references/schema.md` §一 = 批注 JSON `schema_version` = annotate_segment.py / examples/llm_wrapper.py）。v2.10.0 新增 5 个可选字段（D07._narrator_identity / D08._time_type / D08._narrative_level / D06._techniques / D12_narrative_mode），全部可选允许 null。**注意**：批注数据 schema 与 skill 版本解耦，skill 升 3.x 不代表批注字段变更。
 > - **aggregation schema_version** = `3.1.0`（`references/aggregation-schema.md` = `scripts/aggregation/*.py`）。v3.7 新增 narrative_structure.json 产物。
 > - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0 / 2.8.0 / 2.9.0 / 2.10.0`（旧产物版本分支豁免，不迁移；v2.10.0 新增可选字段缺失时视为 null 放行）。
@@ -273,7 +273,7 @@ python scripts/select_segments.py --structure <out>/{doc_id}_structure.jsonl
 
 ### 3.7 聚合层（v2.9/v3.0，可选但推荐）——批注 → 全局叙事结构
 
-**批注管"逐段信号"，聚合管"全书拼图"**。聚合层把 L1-L4 批注（+D19/D15/D18 细粒度信号）组装成全局叙事图，供生成侧 / 叙事分析直接消费。9 个脚本纯规则零第三方依赖，全链路 <2s/本。
+**批注管"逐段信号"，聚合管"全书拼图"**。聚合层把 L1-L4 批注（+D19/D15/D18 细粒度信号）组装成全局叙事图，供生成侧 / 叙事分析直接消费。10 个脚本纯规则零第三方依赖，全链路 <2s/本。
 
 ```bash
 AGG=scripts/aggregation
@@ -295,14 +295,19 @@ python $AGG/story_type_inference.py --segments <out>/{doc_id}_segments.jsonl --s
 # ⑤ 叙事结构分析（v3.7 新增：弗雷塔格五幕+热奈特聚焦+叙事时间线+救猫咪节拍+叙事层级 → narrative_structure）
 python $AGG/narrative_structure.py --structure <out>/{doc_id}_structure.jsonl \
     --doc-id <doc_id> --output-dir <out>/aggregation
-# ⑥ 因果链（cross_segment 关系 → CAUSE/ENABLE 边）
+# ⑥ 叙事技法分析（v3.8 新增：转场技巧+悬念设置+蒙太奇手法+钩子类型 → writing_techniques）
+python $AGG/writing_techniques.py --structure <out>/{doc_id}_structure.jsonl \
+    --interpretation <out>/{doc_id}_interpretation.jsonl \
+    [--cross-segment <out>/{doc_id}_cross_segment.jsonl] \
+    --doc-id <doc_id> --output-dir <out>/aggregation
+# ⑦ 因果链（cross_segment 关系 → CAUSE/ENABLE 边）
 python $AGG/causal_graph.py --cross-segment <out>/{doc_id}_cross_segment.jsonl --structure <out>/{doc_id}_structure.jsonl \
     --doc-id <doc_id> --output-dir <out>/aggregation
-# ⑦ 物件链（D15 意象聚类 → object_chains）
+# ⑧ 物件链（D15 意象聚类 → object_chains）
 python $AGG/object_chains.py --craft <out>/{doc_id}_craft.jsonl --doc-id <doc_id> --output-dir <out>/aggregation
-# ⑧ 故事图合并（五子图谱 + story_metadata → story_graph.json）
+# ⑨ 故事图合并（五子图谱 + story_metadata → story_graph.json）
 python $AGG/story_graph.py --aggregation-dir <out>/aggregation --doc-id <doc_id> --output-dir <out>/aggregation
-# ⑨ 适配器（story_graph → text2story / YARN / NCP 三种叙事格式）
+# ⑩ 适配器（story_graph → text2story / YARN / NCP 三种叙事格式）
 python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.json \
     --doc-id <doc_id> --output-dir <out>/aggregation/adapters --formats text2story,yarn,ncp
 ```
@@ -433,7 +438,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 |------|------|------|
 | **Agent 最小操作契约（CLI 速查 + 校验错误修复表）** | `docs/RUNBOOK.md` | 每个新运行者（尤其 Agent）开始前必读；比本文件更短 |
 | **四层 Schema 完整定义（唯一真源）** | `references/schema.md` | 写 D01/D04/D07/D10/D11/关系类型 等不确定时 |
-| **聚合层 Schema 完整定义（唯一真源）** | `references/aggregation-schema.md` | 跑/改 `scripts/aggregation/` 9 脚本或消费聚合产物前 |
+| **聚合层 Schema 完整定义（唯一真源）** | `references/aggregation-schema.md` | 跑/改 `scripts/aggregation/` 10 脚本或消费聚合产物前 |
 | **Few-shot 完整批注示例** | `references/annotation-examples.md` | 开始批注前看 1–2 条找感觉 |
 | **情绪校准锚点完整表** | `references/emotion-anchors.md` | 情绪强度犹豫时 |
 | **D19 情感词表（50 词，枚举真源）** | `references/emotion-lexicon.md` | 跑 P4/D19 前必读 |
@@ -462,6 +467,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 | 版本 | 日期 | 变化 |
 |------|------|------|
 | **3.3.0** | 2026-09-05 | **DLUT 完整引入（ADR-013，T-032）**：①新建 `scripts/build_dlut_subset.py`——从本地全量 xlsx（27,465 词）按文学精读适配规则清洗（词性 adj/verb/noun/adv + 词长 ≤2 + 义项合并），生成 `references/lexicon-dlut-subset.json`（9,924 词，含来源/许可/引用声明，随包分发，D19 命中率 33/50 与全量一致）；②新建 `references/emotion-taxonomy.md`——DLUT 21 小类 → Plutchik 8 基元 → D19 词位三级映射表（NN/NM 双认 + NG 归类注记，词表演化归约裁决表）；③`scripts/lexicon_crosscheck.py` 升级 v3.3——**默认读仓库内子集**（--subset），子集缺失回退本地全量 xlsx（--dlut），NRC 文件缺失自动跳过抽样（降级不报错），一般使用者无需任何外部数据即可跑词表演化工具；④README §八.3 重写（子集已分发 + 维护者才需全量 + NRC 仍禁再分发）。 |
+| **3.8.0** | 2026-09-05 | **叙事技法分析（ADR-014，T-037）**：聚合层第 10 脚本 `writing_techniques.py`，产出 writing_techniques.json。4 子模块规则粗筛（同因果链"规则粗筛+LLM精排"架构）：①转场技巧（时间转场=年份差≥2或季节变化/空间转场=地点关键词变化/细节过渡=背景铺垫→过渡→上升行动/悬念转场=高潮转折→下降背景硬切）；②悬念设置（设疑法=D06隐藏含疑问词/连环设悬=连续≥3段隐藏/伏笔回收对=cross_refs/悬念留白=隐藏后5段内无揭示）；③蒙太奇手法（平行蒙太奇=5段窗口内地点变化≥3/交叉蒙太奇=D05≥4且D01快速切换/对比蒙太奇=相邻段D04极性相反且强度≥5）；④钩子类型（悬念钩子=段尾D06隐藏或D01转折/行动钩子=D05≥4或D01高潮/情感钩子=D04 intensity≥7/场景钩子=段首地点关键词变化）。综合技法评估（技法密度/写作风格/主导技法）。aggregation schema 不变（3.1.0，新增产物同版本）。annotation schema 不变（纯聚合新增）。 |
 | **3.7.0** | 2026-09-05 | **叙事结构分析（ADR-014，T-036）**：聚合层第 9 脚本 `scripts/aggregation/narrative_structure.py`，产出 narrative_structure.json。P0：弗雷塔格五幕（从 D01 序列按幕转换点推导，六幕区间+关键转折点+结构健康度）+ 热奈特聚焦（从 D07.type 统计+_narrator_identity，主导聚焦+切换率+复杂度+叙述者可靠性）；P1：叙事时间线（从 D08.time+_time_type，时间节点+时间跳跃+时间结构类型，旧产物降级为关键词推断）+ 救猫咪节拍（简化 14 节拍，位置百分比定位+D01 信号验证）；P2：叙事层级图（从 D08._narrative_level，旧产物降级标注）。aggregation schema 3.0→3.1。annotation schema 不变（纯聚合新增）。 |
 | **3.6.0** | 2026-09-05 | **原子化扩展字段（ADR-014，T-035）**：annotation schema 2.9.0→2.10.0，新增 5 个可选字段——①`D07._narrator_identity`（叙述者身份 ID，跨段追踪）；②`D08._time_type`（linear/flashback/flashforward/analepsis/prolepsis 时间结构类型）；③`D08._narrative_level`（1/2/3+ 叙事层级）；④`D06._techniques`（7 种信息控制技巧数组：延迟揭示/选择性披露/视角遮蔽/不可靠叙述者误导/信息过载/误导性伏笔/悬念留白）；⑤`D12_narrative_mode`（热奈特叙事话语模式：场景/概述/停顿/省略/摘要 + density + is_summary + is_scene）。全部可选允许 null，LLM 无法判断时 null；旧产物零迁移（校验器缺失字段视为 null 放行）。schema.md/validate_output.py/templates 全链同步。设计意图：这 5 个字段是 v3.7 叙事结构分析（聚合层）的原子信号前置依赖。 |
 | **3.5.0** | 2026-09-05 | **精细化切分器/重排（ADR-014，T-034）**：①SKILL.md 新增 Phase 1.5 场景边界判断 Prompt（LumberChunker 思想 Skill 化，Agent 用自身 LLM 判断相邻段是否同场景，四维度：地点变化/时间跳跃/视角切换/主题断裂，输出 scene_boundary.json 只标记不切）；②新建 `scripts/reshape_segments.py`——后处理切分重排（读 segments_rough + scene_boundary + 原始文本 → final_segments.jsonl + segment_id_mapping.json，按 start_char/end_char 从原文按字符区间重切，重新编号 scene_NNN，建立新旧 ID 映射，坐标自校验）；③重排规则优先级：章节边界自动切 > scene_boundary 显式标记 > 默认合并；④annotation/aggregation schema 不变（纯预处理增强，Phase 2 annotate_segment 不变，只需 --segments 指向 final_segments）。 |
