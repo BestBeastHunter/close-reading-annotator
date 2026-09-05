@@ -1,6 +1,6 @@
 {
-  "_comment": "结构层（Layer 1）输出模板（v2.5 起每层独立 JSONL）。请勿输出 _comment。请把下文所有占位字段替换为真实值，确保枚举值对齐 references/schema.md。",
-  "schema_version": "2.9.0",
+  "_comment": "结构层（Layer 1）输出模板（v2.10.0 起每层独立 JSONL）。请勿输出 _comment。请把下文所有占位字段替换为真实值，确保枚举值对齐 references/schema.md。v2.10.0 新增 5 个可选字段：D07._narrator_identity / D08._time_type / D08._narrative_level / D12_narrative_mode（全部可选，无法判断时 null）。",
+  "schema_version": "2.10.0",
   "annotation_id": "<doc_id>_seg_<NNNN>_structure_ann_0",
   "document_id": "<doc_id>",
   "segment_id": "<doc_id>_seg_<NNNN>",
@@ -26,16 +26,25 @@
         "type": "第三人称全知",
         "is_switch_point": false,
         "switch_from": null,
-        "switch_to": null
+        "switch_to": null,
+        "_narrator_identity": null
       },
       "D08": {
         "time": "一八二五年二月二十四日下午",
-        "space": "马赛港外"
+        "space": "马赛港外",
+        "_time_type": "linear",
+        "_narrative_level": "1"
       },
       "D10": null,
       "D11": [
         "环境描写"
-      ]
+      ],
+      "D12_narrative_mode": {
+        "mode": "场景",
+        "density": 0.85,
+        "is_summary": false,
+        "is_scene": true
+      }
     }
   },
   "confidence": {

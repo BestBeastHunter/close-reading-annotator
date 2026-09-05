@@ -1,16 +1,25 @@
-# references/schema.md — 四层精读批注 Schema 完整定义 v2.9.0
+# references/schema.md — 四层精读批注 Schema 完整定义 v2.10.0
 
 > **⚠️ 本文件是唯一真源。** 所有枚举值、字段格式、span 坐标系、引文校验规则，**只以本文件为准**。
 > SKILL.md、`scripts/validate_output.py`、`templates/*.json` 下游三者的定义必须完全同步于本文件。
-> 版本号 `2.9.0` 必须与 SKILL.md frontmatter、新批注 JSON 的 `schema_version`、`_metadata.skill_version` 一致。
-> 校验器向后兼容：`2.5.0` / `2.6.0` / `2.7.0` / `2.8.0` / `2.9.0` 产物均被接受（版本分支豁免，见 §八）。
+> 版本号 `2.10.0` 必须与 SKILL.md frontmatter、新批注 JSON 的 `schema_version`、`_metadata.skill_version` 一致。
+> 校验器向后兼容：`2.5.0` / `2.6.0` / `2.7.0` / `2.8.0` / `2.9.0` / `2.10.0` 产物均被接受（版本分支豁免，见 §八）。
 > **唯一例外**：D19 的 `emotion` 枚举（50 词）因需随语料演化，真源为 `references/emotion-lexicon.md`——本文件只声明引用，validate_output.py 白名单须逐词同步 emotion-lexicon.md。
 
 ---
 
 ## 一、版本与真源声明
 
-- Schema 版本：`2.9.0`（SemVer）
+- Schema 版本：`2.10.0`（SemVer）
+- **v2.10.0 变更摘要（宽松兼容，ADR-014 决定 3）**：
+  - **原子化扩展字段 5 个（全部可选，LLM 无法判断时 null，旧产物零迁移）**：
+    1. `D07._narrator_identity`（structure 层，D07 子字段）：叙述者身份 ID（字符串，可 null），用于跨段追踪同一叙述者
+    2. `D08._time_type`（structure 层，D08 子字段）：时间结构类型枚举——`linear`（线性）/ `flashback`（倒叙）/ `flashforward`（预叙）/ `analepsis`（追叙/回闪）/ `prolepsis`（预叙/前瞻）
+    3. `D08._narrative_level`（structure 层，D08 子字段）：叙事层级——`1`（故事层）/ `2`（元叙事/故事中故事）/ `3+`（多层嵌套）
+    4. `D06._techniques`（interpretation 层，D06 子字段）：信息控制具体技巧数组（可多选）——`延迟揭示` / `选择性披露` / `视角遮蔽` / `不可靠叙述者误导` / `信息过载` / `误导性伏笔` / `悬念留白`
+    5. `D12_narrative_mode`（structure 层，新字段）：叙事话语模式——`{mode: 场景|概述|停顿|省略|摘要, density: number|null, is_summary: bool, is_scene: bool}`，基于热奈特叙事话语理论（场景=实时展示，概述=压缩叙述，停顿=描写暂停，省略=时间跳跃，摘要=浓缩回顾）
+  - 不改不删任何既有必填字段；2.5–2.9 旧产物零迁移（新增可选字段缺失时校验器视为 null 放行）。
+  - **设计意图**：这 5 个字段是 v3.7 叙事结构分析（聚合层）的原子信号前置依赖——逐段标注时间类型/叙事层级/叙述者身份/信息控制技巧/叙事话语模式，聚合层才能推导弗雷塔格五幕、热奈特聚焦、叙事时间线等全局结构。
 - **v2.9.0 变更摘要（宽松兼容，ADR-011）**：
   - **D04.core 词表手术**：删 4 非情绪词（尊严=价值状态 / 背叛=事件关系 / 贪婪=动机特质 / 宽恕=行为美德）→ 补 4 中文文学高频情绪（羞耻 / 惊讶 / 渴望 / 厌恶），20 词保持；**2.8.0 及更早产物旧词由校验器版本分支豁免**（历史数据豁免，不迁移不拒绝）。
   - **D19 词表 44→50**：补 羞耻 / 渴望 / 嫉妒 / 迷茫 / 感动 / 得意；4 姿态复合词（叙述性冷漠/反讽性平静/冷峻中的悲悯/克制中的温情）标注使用条件（真源 emotion-lexicon.md v2）。
@@ -198,13 +207,30 @@ Layer 3（文笔层）所有引用子串的 `span`（D13/D14/D15/D16/D17），**
   "type": string,
   "is_switch_point": boolean,
   "switch_from": string | null,
-  "switch_to": string | null
+  "switch_to": string | null,
+  "_narrator_identity": string | null   // v2.10.0 新增：叙述者身份 ID（如 "narrator_001"），用于跨段追踪同一叙述者；无法判断时 null
 }
 ```
 
 #### D08 时空标记（对象，必填）
 ```typescript
-"D08": { "time": string | null, "space": string | null }
+"D08": {
+  "time": string | null,
+  "space": string | null,
+  "_time_type": "linear" | "flashback" | "flashforward" | "analepsis" | "prolepsis" | null,  // v2.10.0 新增：时间结构类型
+  "_narrative_level": "1" | "2" | "3+" | null   // v2.10.0 新增：叙事层级（1=故事层/2=元叙事/3+=多层嵌套）
+}
+```
+
+#### D12 叙事话语模式（对象，v2.10.0 新增，可选可 null）
+> 基于热奈特叙事话语理论：场景=实时展示（对话+动作），概述=压缩叙述（"三年后"），停顿=描写暂停（环境/心理描写，故事时间停止），省略=时间跳跃（"十年过去了"），摘要=浓缩回顾（总结性叙述）。
+```typescript
+"D12_narrative_mode": {
+  "mode": "场景" | "概述" | "停顿" | "省略" | "摘要",
+  "density": number | null,   // 叙事密度 0-1：场景≈1.0（实时），概述≈0.3-0.6（压缩），省略≈0.0（跳跃），停顿≈0.0（描写），摘要≈0.2-0.4
+  "is_summary": boolean,       // 是否为摘要/回顾性叙述
+  "is_scene": boolean          // 是否为场景（实时展示）
+} | null
 ```
 
 #### D10 对话功能（可 null）
@@ -216,7 +242,7 @@ Layer 3（文笔层）所有引用子串的 `span`（D13/D14/D15/D16/D17），**
 **Structure 层输出根结构**：
 ```json
 {
-  "schema_version": "2.6.0",
+  "schema_version": "2.10.0",
   "annotation_id": "<doc_id>_seg_0001_structure_ann_0",
   "document_id": "<doc_id>",
   "segment_id": "<doc_id>_seg_0001",
@@ -228,10 +254,11 @@ Layer 3（文笔层）所有引用子串的 `span`（D13/D14/D15/D16/D17），**
       "D01": "背景铺垫",
       "D04": { "core": "平静", "modifier": null, "intensity": 3, "polarity": "neutral" },
       "D05": 3,
-      "D07": { "type": "第三人称有限", "is_switch_point": false, "switch_from": null, "switch_to": null },
-      "D08": { "time": null, "space": null },
+      "D07": { "type": "第三人称有限", "is_switch_point": false, "switch_from": null, "switch_to": null, "_narrator_identity": null },
+      "D08": { "time": null, "space": null, "_time_type": "linear", "_narrative_level": "1" },
       "D10": null,
-      "D11": ["心理描写"]
+      "D11": ["心理描写"],
+      "D12_narrative_mode": { "mode": "场景", "density": 0.85, "is_summary": false, "is_scene": true }
     }
   },
   "confidence": { "overall": 0.85, "confidence_method": "model_self_report", "per_dimension": { "D01": 0.9, "...": 0.9 } },
@@ -250,7 +277,8 @@ Layer 3（文笔层）所有引用子串的 `span`（D13/D14/D15/D16/D17），**
 ```typescript
 "D06_information_control": {
   "type": "揭示|隐藏|误导|复合",
-  "content": string   // 引文必须来自原文子串（过 §五 引文校验）
+  "content": string,   // 引文必须来自原文子串（过 §五 引文校验）
+  "_techniques": string[] | null   // v2.10.0 新增：信息控制具体技巧数组（可多选）——延迟揭示/选择性披露/视角遮蔽/不可靠叙述者误导/信息过载/误导性伏笔/悬念留白
 } | null
 ```
 

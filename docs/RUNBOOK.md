@@ -2,7 +2,7 @@
 
 > **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
 > 完整 schema / 枚举 / 设计决策见 `references/schema.md`（批注层）、`references/aggregation-schema.md`（聚合层）、`SKILL.md`、工作区 `docs/design-decisions.md`。
-> 版本：skill v3.5.0 / annotation schema 2.9.0 / aggregation schema 3.0.0（决策 22 三域解耦）
+> 版本：skill v3.6.0 / annotation schema 2.10.0 / aggregation schema 3.0.0（决策 22 三域解耦）
 
 ---
 

@@ -1,22 +1,22 @@
 ---
 name: close-reading-annotator
-version: 3.5.0
+version: 3.6.0
 description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v3.5.0
+# 四层精读批注 Skill v3.6.0
 
 对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
 **核心原则**：每段每层独立落盘 → 断点续跑 → Layer 4 二阶段执行 → 四层合并输出 → 聚合层拼图出全局叙事结构。
 
 > **版本声明（决策 22：三版本域解耦）**：
-> - **skill version** = `3.5.0`（本文件 frontmatter = README = RUNBOOK）。v3.5 精细化切分器/重排（ADR-014，T-034）：场景边界判断 Prompt（LumberChunker 思想 Skill 化）+ reshape_segments.py 后处理重排；v3.4 前置双模块（ADR-014，T-033）：数据质量看门狗 + 计算文学分析；v3.3 DLUT 完整引入（ADR-013，T-032）；v3.2 一致性基础设施（ADR-012，T-031）；v3.1 词表手术（ADR-011，T-030）。
-> - **annotation schema_version** = `2.9.0`（`references/schema.md` §一 = 批注 JSON `schema_version` = annotate_segment.py / examples/llm_wrapper.py）。**注意**：批注数据 schema 与 skill 版本解耦，skill 升 3.x 不代表批注字段变更。
+> - **skill version** = `3.6.0`（本文件 frontmatter = README = RUNBOOK）。v3.6 原子化扩展字段（ADR-014，T-035）：annotation schema 2.9.0→2.10.0，新增 5 个可选字段（D07._narrator_identity / D08._time_type / D08._narrative_level / D06._techniques / D12_narrative_mode），全部可选允许 null，旧产物零迁移；v3.5 精细化切分器/重排（ADR-014，T-034）；v3.4 前置双模块（ADR-014，T-033）；v3.3 DLUT 完整引入（ADR-013，T-032）；v3.2 一致性基础设施（ADR-012，T-031）；v3.1 词表手术（ADR-011，T-030）。
+> - **annotation schema_version** = `2.10.0`（`references/schema.md` §一 = 批注 JSON `schema_version` = annotate_segment.py / examples/llm_wrapper.py）。v2.10.0 新增 5 个可选字段（D07._narrator_identity / D08._time_type / D08._narrative_level / D06._techniques / D12_narrative_mode），全部可选允许 null。**注意**：批注数据 schema 与 skill 版本解耦，skill 升 3.x 不代表批注字段变更。
 > - **aggregation schema_version** = `3.0.0`（`references/aggregation-schema.md` = `scripts/aggregation/*.py`）。
-> - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0 / 2.8.0 / 2.9.0`（旧产物版本分支豁免，不迁移）。
+> - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0 / 2.8.0 / 2.9.0 / 2.10.0`（旧产物版本分支豁免，不迁移；v2.10.0 新增可选字段缺失时视为 null 放行）。
 > - **枚举真源**：批注层 `references/schema.md`；聚合层 `references/aggregation-schema.md`（本文件速览 / validate_output.py / templates 均须同步）。**唯一例外**：D19 `emotion` 枚举（50 词）真源为 `references/emotion-lexicon.md`（决策 17 特批）。词表演化映射参考：`references/emotion-taxonomy.md`（DLUT 21 小类三级映射，ADR-013）。
 
 ---
@@ -317,7 +317,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 
 | 层 | 维度 | 必做/按需 | 落盘文件 |
 |:-:|:----|:--------:|:--------|
-| **L1 结构层** | D01 叙事功能 / D04 情绪基调 / D05 叙事节奏 / D07 叙事视角 / D08 时空标记 / D10 对话功能 / D11 描写类型 | ✅ **必做** | `{doc_id}_structure.jsonl` |
+| **L1 结构层** | D01 叙事功能 / D04 情绪基调 / D05 叙事节奏 / D07 叙事视角 / D08 时空标记 / D10 对话功能 / D11 描写类型 / **D12 叙事话语模式（v2.10.0 新增，可选）** | ✅ **必做**（D12 可选） | `{doc_id}_structure.jsonl` |
 | **L2 阐释层** | D06 信息控制 / D09 主题标签(≤3) / narrator_reliability | ⚡ 按需 | `{doc_id}_interpretation.jsonl` |
 | **L2.5 情感层** | D19（主情感/复合/对象/触发点/段内弧/表达）| ⚡ P4 触发式 | `{doc_id}_emotion.jsonl` |
 | **L3 文笔层** | D13 佳句 / D14 修辞 / D15 意象 / D16 词汇 / D17 句式 / D18 语言指纹 | ⚡ 按需 | `{doc_id}_craft.jsonl` |
@@ -330,10 +330,11 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 | D01 | 枚举 | 背景铺垫/激励事件/上升行动/转折/高潮/下降行动/结局/过渡/复合功能/无法判断 | 自造词=报错 |
 | D04 | 对象 | **core 从下方 v2.9.0 新 20 词选**；modifier 可 null；intensity 1-10 整数；**polarity 必填** ∈ positive/negative/neutral/mixed | `core:"敬仰"`=非法；漏 intensity/polarity=非法；2.9.0 产物写旧词（尊严/背叛/贪婪/宽恕）=非法 |
 | D05 | 整数 | 1 / 2 / 3 / 4 / 5 | 小数/越界=报错 |
-| D07 | 对象 | type ∈ 第一人称/第二人称/第三人称有限/第三人称全知/多视角/不可靠叙述者/客观叙事 | is_switch_point 没前后文证据一律 false |
-| D08 | 对象 | time/space 均 string\|null | 子字段 null 不写 null_reasons（仅 D08 整体 null 才写）|
+| D07 | 对象 | type ∈ 第一人称/第二人称/第三人称有限/第三人称全知/多视角/不可靠叙述者/客观叙事；**_narrator_identity（v2.10.0 可选）**：叙述者身份 ID（如 "narrator_001"），跨段追踪同一叙述者，无法判断时 null | is_switch_point 没前后文证据一律 false；_narrator_identity 不要写具体人名（应写 ID 或 null） |
+| D08 | 对象 | time/space 均 string\|null；**_time_type（v2.10.0 可选）** ∈ linear/flashback/flashforward/analepsis/prolepsis；**_narrative_level（v2.10.0 可选）** ∈ "1"/"2"/"3+" | 子字段 null 不写 null_reasons（仅 D08 整体 null 才写）；_time_type 拿不准写 "linear"（默认线性）或 null |
 | D10 | 枚举\|null | 推动情节/揭示性格/传递信息/制造冲突/营造氛围/复合功能 | 无对话=null + null_reasons.D10 |
 | D11 | 数组 | 环境/心理/动作/外貌/感官描写（可多选 ≥1）| **严禁 null / 空数组**；纯议论段写 `["心理描写"]` 给低置信度 |
+| **D12（v2.10.0 可选）** | 对象\|null | **mode** ∈ 场景/概述/停顿/省略/摘要（热奈特叙事话语）；**density** 0-1 数字或 null；**is_summary** bool；**is_scene** bool | 无法判断时整体 null（不写 null_reasons）；场景=对话+动作实时展示（density≈0.8-1.0），概述=压缩叙述（density≈0.3-0.6），省略=时间跳跃（density≈0），停顿=描写暂停（density≈0） |
 
 **D04.core v2.9.0 新 20 枚举词（必须严格从中选 1）**：平静 / 压抑 / 焦虑 / 悲伤 / 愤怒 / 恐惧 / 喜悦 / 希望 / 绝望 / 孤独 / 信任 / 屈辱 / 嫉妒 / 复仇 / 悬疑 / 释然 / 羞耻 / 惊讶 / 渴望 / 厌恶
 > **v2.9.0 手术（ADR-011）**：删 4 非情绪词（尊严=价值状态 / 背叛=事件关系 / 贪婪=动机特质 / 宽恕=行为美德）→ 补 4 中文文学高频情绪（羞耻 / 惊讶 / 渴望 / 厌恶）。2.8.0 及更早产物的旧词由校验器版本分支豁免，**新产物一律写新词表**。
@@ -342,7 +343,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 
 ### 4.2 Layer 2 要点
 
-- D06：`type ∈ {揭示/隐藏/误导/复合}`；content 中引号引的**引文必须是 `text_span.text` 子串**（validate 抽引号并校验子串 + 95% 相似度）。
+- D06：`type ∈ {揭示/隐藏/误导/复合}`；content 中引号引的**引文必须是 `text_span.text` 子串**（validate 抽引号并校验子串 + 95% 相似度）。**_techniques（v2.10.0 可选）**：信息控制具体技巧数组（可多选）——延迟揭示/选择性披露/视角遮蔽/不可靠叙述者误导/信息过载/误导性伏笔/悬念留白。
 - D09：`string[] | null`，**≤3 个**（超=截断+报错）。
 - narrator_reliability：可靠 / 部分不可靠 / 不可靠 / 无法判断。
 
@@ -458,6 +459,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 | 版本 | 日期 | 变化 |
 |------|------|------|
 | **3.3.0** | 2026-09-05 | **DLUT 完整引入（ADR-013，T-032）**：①新建 `scripts/build_dlut_subset.py`——从本地全量 xlsx（27,465 词）按文学精读适配规则清洗（词性 adj/verb/noun/adv + 词长 ≤2 + 义项合并），生成 `references/lexicon-dlut-subset.json`（9,924 词，含来源/许可/引用声明，随包分发，D19 命中率 33/50 与全量一致）；②新建 `references/emotion-taxonomy.md`——DLUT 21 小类 → Plutchik 8 基元 → D19 词位三级映射表（NN/NM 双认 + NG 归类注记，词表演化归约裁决表）；③`scripts/lexicon_crosscheck.py` 升级 v3.3——**默认读仓库内子集**（--subset），子集缺失回退本地全量 xlsx（--dlut），NRC 文件缺失自动跳过抽样（降级不报错），一般使用者无需任何外部数据即可跑词表演化工具；④README §八.3 重写（子集已分发 + 维护者才需全量 + NRC 仍禁再分发）。 |
+| **3.6.0** | 2026-09-05 | **原子化扩展字段（ADR-014，T-035）**：annotation schema 2.9.0→2.10.0，新增 5 个可选字段——①`D07._narrator_identity`（叙述者身份 ID，跨段追踪）；②`D08._time_type`（linear/flashback/flashforward/analepsis/prolepsis 时间结构类型）；③`D08._narrative_level`（1/2/3+ 叙事层级）；④`D06._techniques`（7 种信息控制技巧数组：延迟揭示/选择性披露/视角遮蔽/不可靠叙述者误导/信息过载/误导性伏笔/悬念留白）；⑤`D12_narrative_mode`（热奈特叙事话语模式：场景/概述/停顿/省略/摘要 + density + is_summary + is_scene）。全部可选允许 null，LLM 无法判断时 null；旧产物零迁移（校验器缺失字段视为 null 放行）。schema.md/validate_output.py/templates 全链同步。设计意图：这 5 个字段是 v3.7 叙事结构分析（聚合层）的原子信号前置依赖。 |
 | **3.5.0** | 2026-09-05 | **精细化切分器/重排（ADR-014，T-034）**：①SKILL.md 新增 Phase 1.5 场景边界判断 Prompt（LumberChunker 思想 Skill 化，Agent 用自身 LLM 判断相邻段是否同场景，四维度：地点变化/时间跳跃/视角切换/主题断裂，输出 scene_boundary.json 只标记不切）；②新建 `scripts/reshape_segments.py`——后处理切分重排（读 segments_rough + scene_boundary + 原始文本 → final_segments.jsonl + segment_id_mapping.json，按 start_char/end_char 从原文按字符区间重切，重新编号 scene_NNN，建立新旧 ID 映射，坐标自校验）；③重排规则优先级：章节边界自动切 > scene_boundary 显式标记 > 默认合并；④annotation/aggregation schema 不变（纯预处理增强，Phase 2 annotate_segment 不变，只需 --segments 指向 final_segments）。 |
 | **3.4.0** | 2026-09-05 | **前置双模块（ADR-014，T-033）**：①新建 `scripts/quality_gate.py`——数据质量看门狗（粗切前硬门槛）：中文字符占比/引号闭合率/乱码检测/段落结构稳定性/重复性检测五维评分，产出 quality_report.json（pass/warn/fail + 修复建议），支持 --fail-on-error CI 集成；②新建 `scripts/quant_analyzer.py`——计算文学分析（重排后批注前，逐 segment 独立）：句长/TTR/词性占比/对话占比/标点密度/情感词频（复用 DLUT 子集，pol 编码 1=褒2=贬0=中）/五感密度（视觉/听觉/触觉/嗅觉/味觉内置词表），产出 quant_metrics.jsonl；jieba 为可选依赖，缺失时自动降级为 DLUT 子集最大正向匹配（2 字词优先）+ 子集词性反查；③annotation schema 不变（2.9.0），aggregation schema 不变（3.0.0）——纯前置脚本，零 schema 变更。 |
 | **3.2.0** | 2026-09-05 | **一致性基础设施（ADR-012，T-031）**：①新建 `scripts/lexicon_crosscheck.py`——DLUT 21 小类 / NRC 中文版数据**本地化对照**（数据不进 git，NRC 许可禁再分发）：D19 覆盖度检查 + 候选词生成（首跑：D19 50 词命中 33/66%，真实缺口小类 NH/NI/NL，NN=数据版"贬责"代码实证修正文献 NM）；②新建 `scripts/collect_lexicon_candidates.py`——WikiSkill 经验回写管道（arXiv:2608.27454）：产物自由情感词 ≥3 次 → 候选，兑现 emotion-lexicon §四协议（首跑：两本书 0 自由词=语料与 50 词表完全一致）；③Trace2Skill SoP（arXiv:2603.25158）：collect `--sop` 输出 RUNBOOK 校验错误修复表自动行（已并入 RUNBOOK §3）；④`examples/llm_wrapper.py` 新增 `build_enum_schema()` + `--show-schema`（D04 20 词 / D19 50 词 JSON Schema 枚举约束，OpenAI 兼容 response_format 接入点）；⑤emotion-lexicon.md 新增 §四.b「基元归约审查协议」——DLUT 21 小类作中文归约中间层（只引分类体系不引数据全文）+ README §八.3 数据获取与许可指引。 |

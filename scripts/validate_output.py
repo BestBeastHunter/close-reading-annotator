@@ -46,7 +46,7 @@ for _s in (sys.stdout, sys.stderr):
 # ---------------- 与 schema.md 严格一致的枚举 ----------------
 
 # v2.9.0：D04 词表手术（删 尊严/背叛/贪婪/宽恕 4 非情绪词 → 补 羞耻/惊讶/渴望/厌恶）；2.8.0 及更早产物旧词版本分支豁免（历史数据豁免，非可选）；D19 44→50 词（补 羞耻/渴望/嫉妒/迷茫/感动/得意）
-SUPPORTED_SCHEMA_VERSIONS = {"2.5.0", "2.6.0", "2.7.0", "2.8.0", "2.9.0"}
+SUPPORTED_SCHEMA_VERSIONS = {"2.5.0", "2.6.0", "2.7.0", "2.8.0", "2.9.0", "2.10.0"}
 SUPPORTED_STATUS = {"tentative", "confirmed", "superseded"}
 SUPPORTED_SECTION_TYPE = {"frontmatter", "body", "epilogue"}
 
@@ -84,6 +84,12 @@ D11_VALUES = {"环境描写", "心理描写", "动作描写", "外貌描写", "�
 # Layer 2 额外枚举
 D06_TYPES = {"揭示", "隐藏", "误导", "复合"}
 NARRATOR_RELIABILITY_VALUES = {"可靠", "部分不可靠", "不可靠", "无法判断"}
+
+# v2.10.0 新增枚举（ADR-014 决定 3）
+D08_TIME_TYPES = {"linear", "flashback", "flashforward", "analepsis", "prolepsis"}
+D08_NARRATIVE_LEVELS = {"1", "2", "3+"}
+D06_TECHNIQUES = {"延迟揭示", "选择性披露", "视角遮蔽", "不可靠叙述者误导", "信息过载", "误导性伏笔", "悬念留白"}
+D12_MODES = {"场景", "概述", "停顿", "省略", "摘要"}
 
 # D19 情感词表（v2.9.0，50 词。真源 = references/emotion-lexicon.md，白名单必须逐词同步该文件）
 EMOTION_LEXICON_VALUES = {
@@ -284,12 +290,25 @@ def validate_structure_layer(ann: dict) -> tuple[list[str], list[str]]:
             errs.append(f"D07.type={d07.get('type')!r} 不在枚举中")
         if not isinstance(d07.get("is_switch_point"), bool):
             errs.append("D07.is_switch_point 必须是 bool")
+        # v2.10.0 新增：D07._narrator_identity（可选，字符串或 null）
+        nid = d07.get("_narrator_identity")
+        if nid is not None and not isinstance(nid, str):
+            errs.append(f"D07._narrator_identity={nid!r} 必须是字符串或 null")
     else:
         errs.append("D07 必须是 object")
     # D08
     d08 = struct.get("D08")
     if not isinstance(d08, dict) or "time" not in d08 or "space" not in d08:
         errs.append("D08 必须是含 time/space 的 object")
+    else:
+        # v2.10.0 新增：D08._time_type（可选，枚举或 null）
+        tt = d08.get("_time_type")
+        if tt is not None and tt not in D08_TIME_TYPES:
+            errs.append(f"D08._time_type={tt!r} 不在枚举 {sorted(D08_TIME_TYPES)} 中")
+        # v2.10.0 新增：D08._narrative_level（可选，枚举或 null）
+        nl = d08.get("_narrative_level")
+        if nl is not None and nl not in D08_NARRATIVE_LEVELS:
+            errs.append(f"D08._narrative_level={nl!r} 不在枚举 {sorted(D08_NARRATIVE_LEVELS)} 中")
     # D10（可 null）
     d10 = struct.get("D10")
     if d10 is not None and d10 not in D10_VALUES:
@@ -302,6 +321,22 @@ def validate_structure_layer(ann: dict) -> tuple[list[str], list[str]]:
         for it in d11:
             if it not in D11_VALUES:
                 errs.append(f"D11 含非法值 {it!r}")
+
+    # v2.10.0 新增：D12_narrative_mode（可选，对象或 null）
+    d12 = struct.get("D12_narrative_mode")
+    if d12 is not None:
+        if not isinstance(d12, dict):
+            errs.append("D12_narrative_mode 必须是 object 或 null")
+        else:
+            if d12.get("mode") not in D12_MODES:
+                errs.append(f"D12.mode={d12.get('mode')!r} 不在枚举 {sorted(D12_MODES)} 中")
+            dens = d12.get("density")
+            if dens is not None and not (isinstance(dens, (int, float)) and 0 <= dens <= 1):
+                errs.append(f"D12.density={dens!r} 必须是 0-1 数字或 null")
+            if not isinstance(d12.get("is_summary"), bool):
+                errs.append("D12.is_summary 必须是 bool")
+            if not isinstance(d12.get("is_scene"), bool):
+                errs.append("D12.is_scene 必须是 bool")
 
     # section_type
     if ann.get("section_type") not in SUPPORTED_SECTION_TYPE:
@@ -342,6 +377,15 @@ def validate_interpretation_layer(ann: dict) -> tuple[list[str], list[str]]:
                     continue
                 if _normalize_whitespace(q) not in norm_src:
                     errs.append(f"D06 引文不在原文中: {q[:50]!r}")
+            # v2.10.0 新增：D06._techniques（可选，数组或 null，每项须在枚举中）
+            techs = d06.get("_techniques")
+            if techs is not None:
+                if not isinstance(techs, list):
+                    errs.append("D06._techniques 必须是数组或 null")
+                else:
+                    for t in techs:
+                        if t not in D06_TECHNIQUES:
+                            errs.append(f"D06._techniques 含非法值 {t!r}（须在 {sorted(D06_TECHNIQUES)} 中）")
     # D09（主题标签，≤3）
     d09 = interp.get("D09")
     if d09 is not None:

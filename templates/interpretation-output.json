@@ -1,6 +1,6 @@
 {
-  "_comment": "阐释层（Layer 2）输出模板。v2.5 起每层独立 JSONL。D06.content 中引号引的引文必须是 text_span.text 的子串。请勿输出 _comment。",
-  "schema_version": "2.9.0",
+  "_comment": "阐释层（Layer 2）输出模板。v2.5 起每层独立 JSONL。D06.content 中引号引的引文必须是 text_span.text 的子串。请勿输出 _comment。v2.10.0 新增 D06._techniques（可选，信息控制具体技巧数组）。",
+  "schema_version": "2.10.0",
   "annotation_id": "<doc_id>_seg_<NNNN>_interpretation_ann_0",
   "document_id": "<doc_id>",
   "segment_id": "<doc_id>_seg_<NNNN>",
@@ -16,7 +16,8 @@
     "interpretation": {
       "D06_information_control": {
         "type": "隐藏",
-        "content": "读者被「还有一封给诺瓦蒂埃先生的私信，要我亲手转交。」这句话钉住：作者向读者揭示了这封信的存在，但对在场的莫雷尔以及后续情节的真实用途完全隐藏。这里的压低声音动作进一步坐实了信息不对称。"
+        "content": "读者被「还有一封给诺瓦蒂埃先生的私信，要我亲手转交。」这句话钉住：作者向读者揭示了这封信的存在，但对在场的莫雷尔以及后续情节的真实用途完全隐藏。这里的压低声音动作进一步坐实了信息不对称。",
+        "_techniques": ["延迟揭示", "选择性披露"]
       },
       "D09": [
         "信件秘密",
