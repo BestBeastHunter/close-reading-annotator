@@ -1,12 +1,12 @@
 ---
 name: close-reading-annotator
-version: 3.8.2
+version: 3.8.3
 description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言、craft层自动修复(v3.8.1)、三项校准功能(v3.8.2：quality_score/confidence/DLUT交叉验证)。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v3.8.2
+# 四层精读批注 Skill v3.8.3
 
 对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
@@ -240,6 +240,39 @@ python scripts/merge_layers.py --doc-id <doc_id> --segments <out>/{doc_id}_segme
 python scripts/render_report.py --doc-id <doc_id> --format md   # 或 html（默认）
 # 产出 {doc_id}_report.md/.html：结构全景 + L2/L3 摘要 + L4 关系清单；零第三方依赖内联样式
 ```
+
+### 3.6 Phase 6：后处理校准（v3.8.2 新增，推荐执行）
+
+> **定位**：四层批注 + 跨段 + 合并 + 报告全部完成后，对已有批注做三项确定性后处理校准，提升批注质量和下游可用性。**可选但推荐**——校准是纯后处理，不破坏既有批注，可随时重跑。
+>
+> **v3.8.3 重要修复**：此前版本仅在版本历史中提到这三个脚本，未集成到主工作流，导致外部用户跑完 Phase 1-5 后不知道还需要校准。v3.8.3 起在工作流中明确列出，并在 `run_pipeline.py` 中默认自动执行（`--calibrate` 默认开启，`--no-calibrate` 可关闭）。
+
+**三项校准功能**：
+
+| # | 校准脚本 | 功能 | 输出字段 |
+|:--:|:---------|:-----|:---------|
+| 1 | `scripts/calibrate_quality.py` | **quality_score 校准**——基于 Craft 层 D13-D17 的加权评分（D13佳句30% + D14修辞20% + D15意象20% + D16词汇15% + D17句式15%），评分公式=基础分40% + 数量分40% + 多样性分20%，计算每段 craft 层的文笔质量分（0-100） | craft 行新增 `_quality_score` + `_quality_breakdown` |
+| 2 | `scripts/recalibrate_confidence.py` | **confidence 信号驱动重算**——基于 5 个确定性信号加权重算 confidence：①校验是否通过（30%）②必填字段完整性（25%）③引文匹配精度（20%）④枚举值合法性（15%）⑤跨层一致性（10%，D04 vs D19 极性/强度一致性） | 全部四层行的 `confidence.overall` 重算 + `confidence.confidence_method=recalibrated_v382` + `_recalibration_breakdown` |
+| 3 | `scripts/cross_validate_emotion.py` | **DLUT 弱信号交叉验证**——基于 DLUT 子集（v3.3 已引入，9,924 词，随包分发）对 segment 原文做情感词频统计，计算 DLUT 推断的主导情感（褒义/贬义/中性），与 D19 主情感的 polarity 对比。DLUT 为弱信号，一致率 >70% 即达标（D19 可表达复合情感和上下文语境） | emotion 行新增 `_baseline_emotion`（含 positive_count/negative_count/neutral_count/dominant_polarity/matched_words_sample/consistent_with_d19），保留原 D19 主情感 |
+
+**执行命令（在产物目录下，doc_id 替换为实际值）**：
+
+```bash
+# 方式一：逐个执行（推荐，便于观察每步输出）
+python scripts/calibrate_quality.py --dir <out_dir> --doc-id <doc_id> --in-place
+python scripts/recalibrate_confidence.py --dir <out_dir> --doc-id <doc_id> --all-layers --in-place
+python scripts/cross_validate_emotion.py --dir <out_dir> --doc-id <doc_id> --in-place
+
+# 方式二：run_pipeline 自动执行（v3.8.3 起默认开启）
+python scripts/run_pipeline.py --doc-id <doc_id> --input <raw.txt> --phases 1,2,3,4,5,6
+# 或仅跑校准（假设 Phase 1-5 已完成）
+python scripts/run_pipeline.py --doc-id <doc_id> --input <raw.txt> --phases 6
+```
+
+**金标准 20 部验证结果（v3.8.2）**：
+- quality_score 分布合理：高分 61.6（手/猫/上海的狐步舞等文学质量高的作品）/ 中分 47.6（月牙儿）/ 基础分 44.6（其他 13 部）
+- confidence emotion 层有 1-7 个唯一值（跨层一致性差异），craft 层 0.9-0.95
+- DLUT 交叉验证平均一致率 **88.7%**（超过 70% 目标），14 部作品 100% 一致，最低 33.3%（为奴隶的母亲，DLUT 弱信号不考虑上下文语境，合理）
 
 ### 3.5 Phase 2.5：P4 情感分析 Pass（Layer 2.5 · D19 · 触发式）
 
@@ -489,6 +522,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 
 | 版本 | 日期 | 变化 |
 |------|------|------|
+| **3.8.3** | 2026-09-06 | **实战审计修复轮（ADR-018）**：外部 AI agent 用 v3.8.2 跑《球状闪电》暴露的 5 项 skill 本身设计缺陷修复。①`annotate_segment.py` SCHEMA_VERSION 常量从 2.9.0 同步为 2.10.0（v3.6.0 已升级 schema 但此处忘记同步，导致 craft/emotion 层 schema_version=2.9.0 与 structure/interpretation=2.10.0 不一致）；②**SKILL.md 工作流新增 Phase 6 后处理校准**——明确说明四层批注完成后需运行 calibrate_quality.py / recalibrate_confidence.py / cross_validate_emotion.py 三个校准脚本，给出完整命令行示例（此前仅在版本历史中提到，外部用户跑完 Phase 1-5 后不知道还需校准，导致 v3.8.2 三项核心功能完全不生效）；③`run_pipeline.py` 集成 Phase 6——新增 `--calibrate`/`--no-calibrate` 参数（默认开启），Phase 5 完成后自动运行三项校准，校准失败不阻断主流程（打印警告继续），默认 phases 从 1-5 改为 1-6；④`merge_layers.py` 生成 merged.jsonl 时每行写入 `schema_version=2.10.0`（此前 merged 行无 schema_version 字段）；⑤`checkpoint.py` save_checkpoint 时确保 schema_version=2.10.0（旧产物 checkpoint schema_version=2.6.0）；⑥`RUNBOOK.md` 新增「产物目录清理」章节——提醒删除 `_batch_*.jsonl` 等临时文件，给出必留产物清单。annotation/aggregation schema 不变（纯 bugfix 和流程集成）。**背景**：Owner 让外部 AI agent 用最新发布版 v3.8.2 跑刘慈欣《球状闪电》（59 段，四层批注全完成，校验全部 PASS），审计产物时发现 v3.8.2 三项校准功能完全未生效（quality_score 0/55 段、recalibrated confidence 0/227 条、baseline_emotion 0/58 段），根因是校准脚本未集成到主工作流；同时发现 schema_version 不一致等 4 项缺陷。 |
 | **3.3.0** | 2026-09-05 | **DLUT 完整引入（ADR-013，T-032）**：①新建 `scripts/build_dlut_subset.py`——从本地全量 xlsx（27,465 词）按文学精读适配规则清洗（词性 adj/verb/noun/adv + 词长 ≤2 + 义项合并），生成 `references/lexicon-dlut-subset.json`（9,924 词，含来源/许可/引用声明，随包分发，D19 命中率 33/50 与全量一致）；②新建 `references/emotion-taxonomy.md`——DLUT 21 小类 → Plutchik 8 基元 → D19 词位三级映射表（NN/NM 双认 + NG 归类注记，词表演化归约裁决表）；③`scripts/lexicon_crosscheck.py` 升级 v3.3——**默认读仓库内子集**（--subset），子集缺失回退本地全量 xlsx（--dlut），NRC 文件缺失自动跳过抽样（降级不报错），一般使用者无需任何外部数据即可跑词表演化工具；④README §八.3 重写（子集已分发 + 维护者才需全量 + NRC 仍禁再分发）。 |
 | **3.8.2** | 2026-09-05 | **三项校准功能（ADR-017，T-042/T-043/T-044）**：①`scripts/calibrate_quality.py`——quality_score 校准，基于 Craft 层 D13-D17 加权评分（D13佳句30%+D14修辞20%+D15意象20%+D16词汇15%+D17句式15%），评分公式=基础分40%+数量分40%+多样性分20%，回写到批注 JSONL 的 `_quality_score` 字段；②`scripts/recalibrate_confidence.py`——confidence 信号驱动重算，基于 5 个确定性信号加权（校验通过30%+必填字段完整性25%+引文匹配精度20%+枚举值合法性15%+跨层一致性10%），回写到 `confidence.overall`，`confidence_method=recalibrated_v382`；③`scripts/cross_validate_emotion.py`——DLUT 弱信号交叉验证，基于 DLUT 子集（v3.3 已引入，9901 词，随包分发）对 segment 原文做情感词频统计，计算 DLUT 推断的主导情感（褒义/贬义/中性），与 D19 主情感的 polarity 对比，双轨存储 `_baseline_emotion` 字段（保留原 D19 主情感）。annotation/aggregation schema 不变（三项均为后处理校准，新增可选元字段 `_quality_score`/`_baseline_emotion`，不破坏既有字段）。**金标准 20 部验证结果**：quality_score 分布合理（高分61.6/中分47.6/基础分44.6，文学质量高的作品得分更高）；confidence emotion 层有 1-7 个唯一值（跨层一致性差异）；DLUT 交叉验证平均一致率 88.7%（超过 70% 目标，14 部作品 100% 一致）。**背景**：T-020 backlog 中规划的三项校准功能（原计划需要人工标注集），因 T-004 金标准 20 部全量批注完成后有了 122 段四层批注作为锚点集，可以实现确定性校准（无需人工标注集）。原计划的 cnsenti 弱信号调整为基于 DLUT 子集的情感词频弱信号交叉验证。 |
 | **3.8.1** | 2026-09-05 | **工程化加固（ADR-016，T-038/T-039/T-040）**：①`span_locator.py` 模糊匹配增强——在原有①精确子串②空白归一化子串之后，新增③去标点归一化子串④SequenceMatcher 相似度≥0.85 模糊匹配，自动定位最相似子串并修正引文文本，返回 {span, text, match_level, similarity, warning}；`repair_craft_row` 升级为使用 fuzzy_find_span，模糊匹配时自动修正引文文本并记录警告；②`annotate_segment.py` 新增 `--auto-fix`/`--no-auto-fix` CLI 参数（默认开启），craft 层校验失败时自动调用 fuzzy_find_span 修正引文和 span 后重试，兑现 SKILL.md 长期声称的"校验失败自动重试3次"承诺；③SKILL.md 新增 §4.0 枚举值速查表——集中列出 D01/D04/D06/D07/D10/D11/D14/D15/D16/D17/D19/cross_segment 共 15 个维度的全部合法枚举值，LLM 生成批注时一眼可查，无需翻 schema.md。annotation/aggregation schema 不变（纯工程化加固，零 schema 变更）。**背景**：T-004 金标准 20 部全量批注执行中，craft 层大规模失败（月牙儿 34/36 失败），根因是 LLM 写的引文有细微偏差（多标点/少字/概括词），原 span_locator 只支持精确+空白归一两级匹配，无法修复；同时枚举值散落在 schema.md 各处，LLM 容易用错枚举值（D14='细节'/'反复'、D15='动物意象'等）。修复后预期 craft 层失败率从 ~50% 降至 <5%。 |

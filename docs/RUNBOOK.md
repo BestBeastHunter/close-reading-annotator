@@ -2,7 +2,7 @@
 
 > **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
 > 完整 schema / 枚举 / 设计决策见 `references/schema.md`（批注层）、`references/aggregation-schema.md`（聚合层）、`SKILL.md`、工作区 `docs/design-decisions.md`。
-> 版本：skill v3.8.2 / annotation schema 2.10.0 / aggregation schema 3.1.0（决策 22 三域解耦）
+> 版本：skill v3.8.3 / annotation schema 2.10.0 / aggregation schema 3.1.0（决策 22 三域解耦）
 
 ---
 
@@ -333,3 +333,44 @@ python examples/llm_wrapper.py --mock
 
 *RUNBOOK v2.7 — "5 分钟跑通，报错查表，踩坑看 §4。"*
 
+
+
+---
+
+## 八、产物目录清理（v3.8.3 新增）
+
+### 8.1 临时文件清理
+
+分批生成批注时（如 `_batch_structure_01.jsonl`、`_batch_craft_02.jsonl` 等），中间文件合并到正式产物后应及时清理，避免污染产物目录。
+
+**常见临时文件模式**：
+- `_batch_*.jsonl` — 分批生成批注的中间文件
+- `*_input.json` / `*_craft_input.json` — 注入用的临时输入
+- `*.tmp` — 原子写的临时文件（正常会自动清理，异常残留时手动删）
+- `*_debug.json` / `*_test.json` — 调试用临时文件
+
+**清理命令**（在产物目录下执行）：
+```bash
+# 删除所有 _batch_ 开头的临时文件
+rm _batch_*.jsonl
+
+# 或用 PowerShell
+Remove-Item _batch_*.jsonl -Force
+```
+
+### 8.2 必留产物清单
+
+清理后应保留以下正式产物：
+- `{doc_id}_segments.jsonl` — 切分结果
+- `{doc_id}_structure.jsonl` — 结构层批注
+- `{doc_id}_interpretation.jsonl` — 阐释层批注（深度档）
+- `{doc_id}_craft.jsonl` — 技法层批注（深度档）
+- `{doc_id}_emotion.jsonl` — 情感层批注（P4 触发段）
+- `{doc_id}_cross_segment.jsonl` — 跨段关系
+- `{doc_id}_merged.jsonl` — 全层合并
+- `{doc_id}_report.md` / `{doc_id}_report.html` — 报告
+- `{doc_id}_checkpoint.json` — 断点续跑状态
+- `{doc_id}_segment_plan.json` — 分档计划（如有）
+- `{doc_id}_quality_report.json` — 质量门报告（v3.4）
+- `{doc_id}_quant_metrics.jsonl` — 计算文学指标（v3.4）
+- `aggregation/` — 聚合层产物目录

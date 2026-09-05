@@ -76,7 +76,7 @@ from validate_output import (  # noqa: E402
     _call_validator,
 )
 
-SCHEMA_VERSION = "2.9.0"
+SCHEMA_VERSION = "2.10.0"  # v3.8.3 修复：v3.6.0 已升级 annotation schema 到 2.10.0，此处忘记同步
 
 ALL_LAYERS = ["structure", "interpretation", "craft", "emotion"]
 

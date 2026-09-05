@@ -111,6 +111,7 @@ def main() -> int:
         c_row = craft.get(sid)
         e_row = emotion.get(sid)
         merged_rows.append({
+            "schema_version": "2.10.0",  # v3.8.3 修复：merged.jsonl 统一写入 schema_version
             "segment_id": sid,
             "chapter": seg.get("chapter"),
             "chapter_index": seg.get("chapter_index"),

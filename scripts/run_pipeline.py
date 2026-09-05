@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-scripts/run_pipeline.py — Phase 1–5 一体化驱动（v2.7 工程化修复轮，决策 18）
+scripts/run_pipeline.py — Phase 1–6 一体化驱动（v2.7 工程化修复轮，决策 18；v3.8.3 新增 Phase 6 后处理校准）
 
 把五个阶段串成一条命令：原文 → 报告，支持断点续跑（读 checkpoint 跳过已完成阶段）。
 
@@ -10,6 +10,7 @@ scripts/run_pipeline.py — Phase 1–5 一体化驱动（v2.7 工程化修复�
   Phase 3  跨段分析    cross_segment.py      （规则启发式）
   Phase 4  嵌套合并    merge_layers.py
   Phase 5  报告渲染    render_report.py      （html/md）
+  Phase 6  后处理校准  calibrate_quality.py + recalibrate_confidence.py + cross_validate_emotion.py（v3.8.2 新增，v3.8.3 集成，--calibrate 默认开启）
 
 Phase 2 批注来源（skill 不捆绑 API，三种模式）：
   A. --llm-cmd "python your_wrapper.py"   全自动：调度壳逐个调用外部 LLM wrapper
@@ -104,7 +105,7 @@ def main() -> int:
     p.add_argument("--input", default=None, help="原始文本文件（Phase 1 切分需要）")
     p.add_argument("--doc-id", required=True, help="文档 ID")
     p.add_argument("--output-dir", default=".", help="所有产物的输出目录（默认当前）")
-    p.add_argument("--phases", default="1,2,3,4,5", help="要运行的阶段，逗号分隔（默认全跑）")
+    p.add_argument("--phases", default="1,2,3,4,5,6", help="要运行的阶段，逗号分隔（默认全跑，含 Phase 6 校准）")
     p.add_argument("--segments", default=None, help="已切好的 segments.jsonl（Phase 1 跳过时的备选入口）")
     p.add_argument("--layers", default="structure,interpretation,craft",
                    help="候选层，逗号分隔。structure 始终全量；interpretation/craft/emotion 受 --plan 档位约束")
@@ -116,15 +117,17 @@ def main() -> int:
                    help="Phase 5 报告格式（默认 html）")
     p.add_argument("--force", action="store_true", help="强制重跑已完成阶段/片段")
     p.add_argument("--skip-annotate", action="store_true", help="跳过 Phase 2（骨架模式，只跑跨段/合并/报告）")
+    p.add_argument("--calibrate", dest="calibrate", action="store_true", default=True, help="Phase 6 后处理校准（默认开启）：quality_score + confidence 重算 + DLUT 交叉验证")
+    p.add_argument("--no-calibrate", dest="calibrate", action="store_false", help="关闭 Phase 6 后处理校准")
     args = p.parse_args()
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     doc_id = args.doc_id
 
-    phases = sorted({int(x.strip()) for x in args.phases.split(",") if x.strip() in "12345"})
+    phases = sorted({int(x.strip()) for x in args.phases.split(",") if x.strip() in "123456"})
     if not phases:
-        print("❌ --phases 必须在 {1,2,3,4,5} 内", file=sys.stderr)
+        print("❌ --phases 必须在 {1,2,3,4,5,6} 内", file=sys.stderr)
         return 2
 
     layers = [l.strip() for l in args.layers.split(",") if l.strip()]
@@ -247,6 +250,47 @@ def main() -> int:
                 "--segments", str(segments_path), "--format", args.report_format])
             if not ok:
                 return 1
+
+
+    # ---------- Phase 6：后处理校准（v3.8.2 新增，v3.8.3 集成） ----------
+    if 6 in phases and args.calibrate:
+        print("\n🔧 Phase 6：后处理校准（quality_score + confidence 重算 + DLUT 交叉验证）")
+        craft_path = out_dir / f"{doc_id}_craft.jsonl"
+        emotion_path = out_dir / f"{doc_id}_emotion.jsonl"
+        structure_path = out_dir / f"{doc_id}_structure.jsonl"
+        interp_path = out_dir / f"{doc_id}_interpretation.jsonl"
+
+        # 6.1 quality_score 校准（需要 craft 层）
+        if craft_path.is_file():
+            ok = _run_phase(6, doc_id, out_dir, [
+                "calibrate_quality.py", "--dir", str(out_dir), "--doc-id", doc_id, "--in-place"])
+            if not ok:
+                print("⚠️ quality_score 校准失败，继续后续校准（不阻断主流程）")
+        else:
+            print("⏭ quality_score 校准跳过：无 craft.jsonl")
+
+        # 6.2 confidence 信号驱动重算（需要全部四层）
+        all_layers_exist = all(p.is_file() for p in [structure_path, interp_path, craft_path, emotion_path])
+        if all_layers_exist:
+            ok = _run_phase(6, doc_id, out_dir, [
+                "recalibrate_confidence.py", "--dir", str(out_dir), "--doc-id", doc_id,
+                "--all-layers", "--in-place"])
+            if not ok:
+                print("⚠️ confidence 重算失败，继续后续校准（不阻断主流程）")
+        else:
+            print("⏭ confidence 重算跳过：四层批注不完整")
+
+        # 6.3 DLUT 弱信号交叉验证（需要 emotion 层）
+        if emotion_path.is_file():
+            ok = _run_phase(6, doc_id, out_dir, [
+                "cross_validate_emotion.py", "--dir", str(out_dir), "--doc-id", doc_id, "--in-place"])
+            if not ok:
+                print("⚠️ DLUT 交叉验证失败（不阻断主流程）")
+        else:
+            print("⏭ DLUT 交叉验证跳过：无 emotion.jsonl")
+
+    elif 6 in phases and not args.calibrate:
+        print("⏭ Phase 6 跳过：--no-calibrate 已关闭")
 
     print("\n✅ run_pipeline 全部完成。产物目录：", out_dir)
     return 0
