@@ -1,19 +1,19 @@
 ---
 name: close-reading-annotator
-version: 3.3.0
+version: 3.4.0
 description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v3.3.0
+# 四层精读批注 Skill v3.4.0
 
 对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
 **核心原则**：每段每层独立落盘 → 断点续跑 → Layer 4 二阶段执行 → 四层合并输出 → 聚合层拼图出全局叙事结构。
 
 > **版本声明（决策 22：三版本域解耦）**：
-> - **skill version** = `3.3.0`（本文件 frontmatter = README = RUNBOOK）。v3.3 DLUT 完整引入已并入（ADR-013，T-032）；v3.2 一致性基础设施（ADR-012，T-031）；v3.1 词表手术（ADR-011，T-030）。
+> - **skill version** = `3.4.0`（本文件 frontmatter = README = RUNBOOK）。v3.4 前置双模块（ADR-014，T-033）：数据质量看门狗 + 计算文学分析；v3.3 DLUT 完整引入（ADR-013，T-032）；v3.2 一致性基础设施（ADR-012，T-031）；v3.1 词表手术（ADR-011，T-030）。
 > - **annotation schema_version** = `2.9.0`（`references/schema.md` §一 = 批注 JSON `schema_version` = annotate_segment.py / examples/llm_wrapper.py）。**注意**：批注数据 schema 与 skill 版本解耦，skill 升 3.x 不代表批注字段变更。
 > - **aggregation schema_version** = `3.0.0`（`references/aggregation-schema.md` = `scripts/aggregation/*.py`）。
 > - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0 / 2.8.0 / 2.9.0`（旧产物版本分支豁免，不迁移）。
@@ -352,6 +352,8 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 | **D01 叙事功能判别锚点（每词 2 示例 + 边界判定表）** | `references/function-anchors.md` | 写 D01 前必读（v3.1 新增，Freytag 五幕 + Labov 六要素） |
 | **节奏校准锚点完整表** | `references/pace-anchors.md` | 节奏犹豫时 |
 | **每层输出模板（可直接填充）** | `templates/*-output.json` | 避免漏字段 |
+| **数据质量看门狗（粗切前硬门槛）** | `scripts/quality_gate.py` | 对原始文本做五维检测（中文占比/引号闭合/乱码/段落结构/重复性），产出 quality_report.json；**粗切分前必须跑一遍**，fail 项需修复后再进入 preprocess（v3.4 新增） |
+| **计算文学分析（逐 segment 量化指标）** | `scripts/quant_analyzer.py` | 重排后、批注前逐 segment 计算句长/TTR/词性/对话占比/标点/情感词频（DLUT 子集）/五感密度，产出 quant_metrics.jsonl，作为 LLM 批注的硬证据注入；jieba 可选，缺失自动降级（v3.4 新增） |
 | **同义词归一化器（自由词→枚举词保守映射）** | `scripts/term_normalizer.py` | 批量落盘前跑一遍纠偏（v3.1 新增） |
 | **词表演化工具（DLUT/NRC 对照 + 经验回写）** | `scripts/lexicon_crosscheck.py` / `scripts/collect_lexicon_candidates.py` | **仅词表维护者（Owner）在词表演化时使用**；一般批注使用者开箱即用、无需下载任何外部数据——crosscheck 默认读仓库内 DLUT 清洗子集 `references/lexicon-dlut-subset.json`（v3.3 新增） |
 | **DLUT 三级映射表（21 小类→8 基元→D19 词位）** | `references/emotion-taxonomy.md` | 词表演化归约裁决（v3.3 新增；emotion-lexicon §四.b 完整版） |
@@ -371,6 +373,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 | 版本 | 日期 | 变化 |
 |------|------|------|
 | **3.3.0** | 2026-09-05 | **DLUT 完整引入（ADR-013，T-032）**：①新建 `scripts/build_dlut_subset.py`——从本地全量 xlsx（27,465 词）按文学精读适配规则清洗（词性 adj/verb/noun/adv + 词长 ≤2 + 义项合并），生成 `references/lexicon-dlut-subset.json`（9,924 词，含来源/许可/引用声明，随包分发，D19 命中率 33/50 与全量一致）；②新建 `references/emotion-taxonomy.md`——DLUT 21 小类 → Plutchik 8 基元 → D19 词位三级映射表（NN/NM 双认 + NG 归类注记，词表演化归约裁决表）；③`scripts/lexicon_crosscheck.py` 升级 v3.3——**默认读仓库内子集**（--subset），子集缺失回退本地全量 xlsx（--dlut），NRC 文件缺失自动跳过抽样（降级不报错），一般使用者无需任何外部数据即可跑词表演化工具；④README §八.3 重写（子集已分发 + 维护者才需全量 + NRC 仍禁再分发）。 |
+| **3.4.0** | 2026-09-05 | **前置双模块（ADR-014，T-033）**：①新建 `scripts/quality_gate.py`——数据质量看门狗（粗切前硬门槛）：中文字符占比/引号闭合率/乱码检测/段落结构稳定性/重复性检测五维评分，产出 quality_report.json（pass/warn/fail + 修复建议），支持 --fail-on-error CI 集成；②新建 `scripts/quant_analyzer.py`——计算文学分析（重排后批注前，逐 segment 独立）：句长/TTR/词性占比/对话占比/标点密度/情感词频（复用 DLUT 子集，pol 编码 1=褒2=贬0=中）/五感密度（视觉/听觉/触觉/嗅觉/味觉内置词表），产出 quant_metrics.jsonl；jieba 为可选依赖，缺失时自动降级为 DLUT 子集最大正向匹配（2 字词优先）+ 子集词性反查；③annotation schema 不变（2.9.0），aggregation schema 不变（3.0.0）——纯前置脚本，零 schema 变更。 |
 | **3.2.0** | 2026-09-05 | **一致性基础设施（ADR-012，T-031）**：①新建 `scripts/lexicon_crosscheck.py`——DLUT 21 小类 / NRC 中文版数据**本地化对照**（数据不进 git，NRC 许可禁再分发）：D19 覆盖度检查 + 候选词生成（首跑：D19 50 词命中 33/66%，真实缺口小类 NH/NI/NL，NN=数据版"贬责"代码实证修正文献 NM）；②新建 `scripts/collect_lexicon_candidates.py`——WikiSkill 经验回写管道（arXiv:2608.27454）：产物自由情感词 ≥3 次 → 候选，兑现 emotion-lexicon §四协议（首跑：两本书 0 自由词=语料与 50 词表完全一致）；③Trace2Skill SoP（arXiv:2603.25158）：collect `--sop` 输出 RUNBOOK 校验错误修复表自动行（已并入 RUNBOOK §3）；④`examples/llm_wrapper.py` 新增 `build_enum_schema()` + `--show-schema`（D04 20 词 / D19 50 词 JSON Schema 枚举约束，OpenAI 兼容 response_format 接入点）；⑤emotion-lexicon.md 新增 §四.b「基元归约审查协议」——DLUT 21 小类作中文归约中间层（只引分类体系不引数据全文）+ README §八.3 数据获取与许可指引。 |
 | **3.1.0** | 2026-09-05 | **词表手术与一致性加固（ADR-011，T-030）**：①D04.core 手术——删 4 非情绪词（尊严/背叛/贪婪/宽恕）→ 补 4 高频情绪（羞耻/惊讶/渴望/厌恶），annotation schema 2.8.0→2.9.0（新增枚举=次版本），validate 对 2.8.0 及更早旧词版本分支豁免；②D19 44→50——补 羞耻/渴望/嫉妒/迷茫/感动/得意，4 姿态复合词标注使用条件（emotion-lexicon.md v2）；③新建 `references/function-anchors.md`（D01 每词 2 示例 + 边界判定表，依据 Freytag 五幕 + Labov 六要素）；④新建 `scripts/term_normalizer.py` 同义词归一化（自由词→枚举词保守映射）；⑤全链同步（schema.md / emotion-anchors polarity 映射 / validate_output / templates / README-RUNBOOK 索引）+ SKILL.md 瘦身（§9 安装移 README）；⑥词库选型参照 NRC EmoLex（Plutchik 8 基元）与大连理工中文情感本体库（7 大类 21 小类）完成交叉验证。**验收**：py_compile 全绿 + 2.8.0 旧产物（含"尊严"）校验版本豁免通过 + 2.9.0 新词表校验断言通过 + 词表 grep 同步一致。 |
 | **3.0.1** | 2026-09-05 | **聚合层修复轮（决策 22，T-029 闭环）**：①adapters.py 字段名对齐上游真实字段——text2story events 改读 `primary_function/primary_time/characters_present`（原读不存在的 scene_summary/time/characters 全占位）、participants 统一 PER（原读不存在的 entity_type 全员误标 ORG）、YARN label 改读 primary_function、NCP 角色改读 `arc_classification.arc_type/trajectory_length/trajectory_sample`（原恒空）+ plot_structure 七桶按 primary_function 实际填充（原死结构）；②entity_resolution 输出 `segment_ids` 完整段集合 + scene_graph/character_arcs 优先完整段集合、采样不足回退原文别名匹配（修复出场角色截断，后半本书 characters_present 大面积为空）；③全脚本 `sorted(set(...))` + scene_graph primary_function 平票确定性 tie-break（消除 PYTHONHASHSEED 顺序漂移，复现性验证 6 产物两次运行哈希一致）；④character_arcs 回退阈值 `< segment_count`（原 *0.5 致 coverage_rate 虚高）；⑤题材关键词去书名化（删上海堡垒/月亮专属词，T-004 前置）；⑥无可靠性标注时 `is_reliable=None`（原默认 True 无证据声称可靠）；⑦文档收编：SKILL §3.7 聚合层章节 + 版本历史、README 版本治理表修正、RUNBOOK 补 8 脚本 CLI 速查、design-decisions 决策 19–22、新建 `references/aggregation-schema.md`（聚合层 Schema 真源）；⑧版本号解耦 ADR（决策 22）：skill version=3.0.1 / annotation schema=2.8.0 / aggregation schema=3.0.0 三域独立。**验收**：两本书全链路重跑 + 内容断言 ALL PASS（占位 0 / 空 tense 0 / 空 participants ≤5% 且均为 frontmatter/过渡段 / PER>0 / trajectory 非空 / plot_structure 非空）。 |

@@ -2,7 +2,7 @@
 
 > **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
 > 完整 schema / 枚举 / 设计决策见 `references/schema.md`（批注层）、`references/aggregation-schema.md`（聚合层）、`SKILL.md`、工作区 `docs/design-decisions.md`。
-> 版本：skill v3.1.0 / annotation schema 2.9.0 / aggregation schema 3.0.0（决策 22 三域解耦）
+> 版本：skill v3.4.0 / annotation schema 2.9.0 / aggregation schema 3.0.0（决策 22 三域解耦）
 
 ---
 
@@ -14,8 +14,16 @@ SKILL=./close-reading-annotator
 OUT=./out
 DOC=my_book
 
+# Phase 0：数据质量看门狗（v3.4 新增，粗切前必须跑）
+python $SKILL/scripts/quality_gate.py --input book.txt --out $OUT/quality_report.json
+# 检查 verdict：fail 项需修复原文后再进入 Phase 1；warn 可继续但需留意
+
 # Phase 1：切分
 python $SKILL/scripts/preprocess.py --input book.txt --doc-id $DOC --output-dir $OUT
+
+# Phase 1.5：计算文学分析（v3.4 新增，重排后/批注前，逐 segment 量化指标）
+python $SKILL/scripts/quant_analyzer.py --segments $OUT/${DOC}_segments.jsonl --out $OUT/${DOC}_quant_metrics.jsonl
+# 产出可注入 annotate_segment 的 Prompt 作为 LLM 批注的硬证据
 
 # Phase 2：全自动批量批注（用官方 mock wrapper 跑通链路，structure 层）
 python $SKILL/scripts/annotate_segment.py \
@@ -130,6 +138,8 @@ python scripts/run_pipeline.py --input <原文.txt> --doc-id <doc_id> --output-d
 | `lexicon_crosscheck.py`（v3.3） | DLUT ↔ D19 覆盖度对照 + 候选词生成。**默认读仓库内清洗子集 `--subset`**（无外部数据即可跑）；子集缺失回退本地全量 `--dlut`；NRC 缺失自动跳过抽样。输出报告 `--out` |
 | `collect_lexicon_candidates.py`（v3.2） | WikiSkill 经验回写：产物自由情感词 ≥3 次 → 候选（`--dir` / `--files`；`--sop` 输出 RUNBOOK 修复表行） |
 | `build_dlut_subset.py`（v3.3） | 仅维护者：本地 DLUT 全量 xlsx → 清洗子集 `references/lexicon-dlut-subset.json`（`--dlut --out`） |
+| `quality_gate.py`（v3.4） | **数据质量看门狗（Phase 0，粗切前必须跑）**：五维检测（中文占比/引号闭合/乱码/段落结构/重复性），产出 quality_report.json（pass/warn/fail + 修复建议）。`--input <txt|jsonl> --out <report.json>`；`--fail-on-error` CI 用 |
+| `quant_analyzer.py`（v3.4） | **计算文学分析（Phase 1.5，批注前）**：逐 segment 计算句长/TTR/词性/对话占比/标点/情感词频（DLUT 子集）/五感密度，产出 quant_metrics.jsonl。`--segments <segments.jsonl> --out <quant.jsonl>`；jieba 可选，缺失自动降级为 DLUT 最大正向匹配 |
 
 ### 2.7 aggregation/ 聚合层 8 脚本（v2.9/v3.0，批注完成后运行）
 

@@ -1,9 +1,9 @@
-# 精读批注 Skill v3.3.0
+# 精读批注 Skill v3.4.0
 
 > 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）与**全局聚合层**（实体/场景/角色弧线/故事类型/因果链/物件链/故事图/适配器）。
 > 适合：小说精读、故事拆解、叙事分析、文笔拆解、结构化语料构建。
 > 本仓库即**完整可运行的 Skill 包**——放到 TRAE / Cursor / Claude Code 的 skills 目录即可使用，也支持纯手动模式（把 `SKILL.md` 注入任意大模型）。
-> **版本（决策 22 三域解耦）**：skill_version = `3.3.0` / annotation schema_version = `2.9.0` / aggregation schema_version = `3.0.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`。
+> **版本（决策 22 三域解耦）**：skill_version = `3.4.0` / annotation schema_version = `2.9.0` / aggregation schema_version = `3.0.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`。
 
 ---
 
@@ -212,6 +212,8 @@ close-reading-annotator/
 │   ├── span_locator.py              # v2.7 新增：span 定位公共模块（fill_spans/annotate 复用）
 │   ├── select_segments.py           # v2.7 新增：段采样分层（deep/light/skip 分档）
 │   ├── run_pipeline.py              # v2.7 新增：Phase 1–5 一体化驱动 + 断点续跑 + --plan
+│   ├── quality_gate.py              # v3.4 新增：Phase 0 数据质量看门狗（五维检测，粗切前硬门槛）
+│   ├── quant_analyzer.py            # v3.4 新增：Phase 1.5 计算文学分析（逐 segment 量化指标，jieba 可选）
 │   │
 │   └── aggregation/                 # v2.9/v3.0 新增：全局聚合器（批注完成后运行，独立后处理）
 │       ├── entity_resolution.py     # v2.9 Step 1：实体消解（→ entity_graph.json）
@@ -237,7 +239,7 @@ close-reading-annotator/
 
 | 版本域 | 声明点 | 值 |
 |--------|--------|-----|
-| **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.3.0` |
+| **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.4.0` |
 | **annotation schema_version** | `references/schema.md` §一 / 批注 JSON `schema_version` / annotate_segment.py / examples/llm_wrapper.py | `2.9.0` |
 | **aggregation schema_version** | `references/aggregation-schema.md` / `scripts/aggregation/*.py` | `3.0.0` |
 
@@ -245,6 +247,7 @@ close-reading-annotator/
 > 修改批注层枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**。修改聚合层产物字段：**先改 `references/aggregation-schema.md`，再改 `scripts/aggregation/*.py`**。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
 
 主要里程碑：
+- **v3.4.0**：前置双模块（T-033，ADR-014）——`quality_gate.py` 数据质量看门狗（五维检测：中文占比/引号闭合/乱码/段落结构/重复性，粗切前硬门槛）+ `quant_analyzer.py` 计算文学分析（逐 segment 句长/TTR/词性/对话占比/标点/情感词频(DLUT子集)/五感密度，jieba 可选自动降级）。annotation/aggregation schema 不变（纯前置脚本）
 - **v3.3.0**：DLUT 完整引入（T-032，ADR-013）——清洗子集 `references/lexicon-dlut-subset.json`（27,465→9,924 词）随包分发、`emotion-taxonomy.md` 三级映射表（21 小类→8 基元→D19 词位）、`build_dlut_subset.py` 生成器、crosscheck 默认读子集（一般使用者无需外部数据）
 - **v3.2.0**：一致性基础设施（T-031，ADR-012）——lexicon_crosscheck（DLUT/NRC 对照）、collect_lexicon_candidates（WikiSkill 经验回写）、Trace2Skill SoP、llm_wrapper 枚举约束
 - **v3.0.1**：聚合层修复轮（T-029）——adapters 字段名对齐（text2story/YARN/NCP 内容性字段全部非占位）、entity_resolution 输出 segment_ids 完整段集合（修复出场角色截断）、全脚本确定性（sorted + 平票 tie-break，复现性验证通过）、题材词表去书名化、is_reliable=None、文档收编（aggregation-schema.md 真源 + 决策 19-22）、版本号解耦 ADR
