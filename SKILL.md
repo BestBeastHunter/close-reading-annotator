@@ -353,7 +353,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 | **节奏校准锚点完整表** | `references/pace-anchors.md` | 节奏犹豫时 |
 | **每层输出模板（可直接填充）** | `templates/*-output.json` | 避免漏字段 |
 | **同义词归一化器（自由词→枚举词保守映射）** | `scripts/term_normalizer.py` | 批量落盘前跑一遍纠偏（v3.1 新增） |
-| **词表演化工具（DLUT/NRC 对照 + 经验回写）** | `scripts/lexicon_crosscheck.py` / `scripts/collect_lexicon_candidates.py` | 词表对照/候选收集时（v3.2 新增；数据放置见 README §八.3） |
+| **词表演化工具（DLUT/NRC 对照 + 经验回写）** | `scripts/lexicon_crosscheck.py` / `scripts/collect_lexicon_candidates.py` | **仅词表维护者（Owner）在词表演化时使用**；一般批注使用者开箱即用、无需下载任何外部数据（v3.2 新增；数据放置见 README §八.3） |
 | **设计决策记录** | 工作区 `docs/design-decisions.md`（已移出 skill 包归档） | 想改架构前先读；本 skill 包内不再携带 |
 | **架构说明 / 审计报告** | 工作区 `docs/architecture.md` / `docs/audit/v30-audit-report.md`（归档） | 深度排查时 |
 

@@ -285,6 +285,7 @@ close-reading-annotator/
 1. **输入**：只批注公版作品、明确授权作品、或你自己的文本。对在版权期内的商业作品做批量批注仅供个人研究，不要分发原文片段。
 2. **输出**：`text_span.text` 会携带原文片段——公开发布批注产物前请谨慎；训练入库前必须跑 `export_dataset.py` 脱敏（「分析即销毁」：只留抽象结构化字段）。
 3. **外部词库数据（v3.2 / ADR-012，仅本地使用，不进本仓库）**：
+   > **一般使用者无需下载任何外部词库**——批注主链路（validate/annotate/checkpoint/merge）自包含，直接用内置 D19 50 词表与 D04 20 词枚举；DLUT/NRC 仅**词表维护者（Owner）**在触发词表演化协议（emotion-lexicon.md §四）时才需要，作为候选词对照数据源。
    - **DLUT 大连理工《情感词汇本体》**（27,466 词，7 大类 21 小类，强度 1/3/5/7/9 五档）：从大连理工信息检索研究室（ir.dlut.edu.cn）或其公开镜像下载 xlsx；学术使用请引用论文《情感词汇本体的构造》（徐琳宏、林鸿飞等）。
    - **NRC EmoLex**（14,182 词，8 基元+2 极性，40 语言）：从作者官网 https://www.saifmohammad.com/WebPages/AccessResource.htm 申请下载；**许可明文禁止再分发（Do not redistribute）**——本仓库不打包任何 NRC 数据，请自行本地放置。
    - 建议放置位置：调用方工作区 `datasets/`（`lexicon_crosscheck.py` 默认从该处寻找）。
