@@ -1,12 +1,12 @@
 ---
 name: close-reading-annotator
-version: 3.8.4
+version: 3.8.5
 description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言、craft层自动修复(v3.8.1)、三项校准功能(v3.8.2：quality_score/confidence/DLUT交叉验证)。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v3.8.4
+# 四层精读批注 Skill v3.8.5
 
 对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
@@ -522,6 +522,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 
 | 版本 | 日期 | 变化 |
 |------|------|------|
+| **3.8.5** | 2026-09-06 | **兜底切分 + 调用链补全（ADR-020）**：①preprocess.py 新增按字符数粗切兜底（--fallback 默认开启，触发条件：章节边界<3个/单段>5000字符/段数<3段且全文>5000字符，--fallback-chars 默认2000，保留句子边界切分，pollution_warning 标记"v3.8.5兜底切分"），解决遇到奇奇怪怪章节标题识别不出来时全文塞进单段的问题；②SKILL.md 调用链补全——新增 Phase 1.5 场景边界判断（LLM 语义化切分 Prompt 模板）+ Phase 1.6 精细化重排（merge_segments.py 调用入口），明确 merge_segments.py / merge_batch.py / check_enum_consistency.py 三个新增脚本在工作流中的调用位置，解决"装载了脚本但 agent 调用不到"的问题。annotation/aggregation schema 不变（纯工程化增强）。 |
 | **3.8.4** | 2026-09-06 | **外部实战反馈修复轮（ADR-019）**：外部 AI agent 用 v3.8.2 跑《球状闪电》后提交试用反馈，暴露 7 项 skill 设计缺陷。①**preprocess 切分器增强（T-050）**：新增纯文字小节标题识别（「XX之一」模式/数字序列/中文数字序列）+ 短行启发式标题检测函数 is_possible_section_title，修复「大学」「异象之一」等纯文字标题不被识别导致 17.5 万字符塞进单段的问题；②**场景边界语义化切分（T-051）**：新增 scripts/merge_segments.py（LumberChunker 思想 Skill 化——粗切→LLM边界判断→脚本重排→精细批注），SKILL.md 新增 Phase 1.5 场景边界判断 Prompt 模板；③**CLI 参数统一（T-052）**：cross_segment.py/render_report.py 统一为 --output-dir（--output 为兼容别名），修复文档与代码不一致导致首次执行报错的问题；④**render_report 变量作用域修复（T-053）**：--segments 改为可选，自动从 output-dir 推断；⑤**枚举真源同步（T-054）**：新增 scripts/check_enum_consistency.py 三方一致性检查工具（schema.md ↔ validate_output.py ↔ SKILL.md），以校验器为权威真源；⑥**cross_segment 规则增强（T-055）**：纳入 D19.target/D06埋设-揭露/D15意象复用作为候选信号，SKILL.md 新增 Phase 3.5 LLM 二分类精排可选步骤；⑦**工具补全（T-056）**：新增 scripts/merge_batch.py（官方 batch 合并注入工具，自动去重+幂等 upsert）+ annotate_segment.py 新增 doc_id 合法性校验 + RUNBOOK.md 新增 PowerShell 编码注意事项和 batch 合并工作流。annotation/aggregation schema 不变（纯工程化增强和体验修复）。**背景**：Owner 让外部 AI agent 用最新发布版跑刘慈欣《球状闪电》，agent 提交详细试用反馈报告（reports/试用反馈报告.md），核心结论是「骨架（校验/续跑/版本治理/聚合）是生产级的，但切分器和文档同步这两个外围环节在真实中文科幻文本上不够皮实」。 |
 | **3.8.3** | 2026-09-06 | **实战审计修复轮（ADR-018）**：外部 AI agent 用 v3.8.2 跑《球状闪电》暴露的 5 项 skill 本身设计缺陷修复。①`annotate_segment.py` SCHEMA_VERSION 常量从 2.9.0 同步为 2.10.0（v3.6.0 已升级 schema 但此处忘记同步，导致 craft/emotion 层 schema_version=2.9.0 与 structure/interpretation=2.10.0 不一致）；②**SKILL.md 工作流新增 Phase 6 后处理校准**——明确说明四层批注完成后需运行 calibrate_quality.py / recalibrate_confidence.py / cross_validate_emotion.py 三个校准脚本，给出完整命令行示例（此前仅在版本历史中提到，外部用户跑完 Phase 1-5 后不知道还需校准，导致 v3.8.2 三项核心功能完全不生效）；③`run_pipeline.py` 集成 Phase 6——新增 `--calibrate`/`--no-calibrate` 参数（默认开启），Phase 5 完成后自动运行三项校准，校准失败不阻断主流程（打印警告继续），默认 phases 从 1-5 改为 1-6；④`merge_layers.py` 生成 merged.jsonl 时每行写入 `schema_version=2.10.0`（此前 merged 行无 schema_version 字段）；⑤`checkpoint.py` save_checkpoint 时确保 schema_version=2.10.0（旧产物 checkpoint schema_version=2.6.0）；⑥`RUNBOOK.md` 新增「产物目录清理」章节——提醒删除 `_batch_*.jsonl` 等临时文件，给出必留产物清单。annotation/aggregation schema 不变（纯 bugfix 和流程集成）。**背景**：Owner 让外部 AI agent 用最新发布版 v3.8.2 跑刘慈欣《球状闪电》（59 段，四层批注全完成，校验全部 PASS），审计产物时发现 v3.8.2 三项校准功能完全未生效（quality_score 0/55 段、recalibrated confidence 0/227 条、baseline_emotion 0/58 段），根因是校准脚本未集成到主工作流；同时发现 schema_version 不一致等 4 项缺陷。 |
 | **3.3.0** | 2026-09-05 | **DLUT 完整引入（ADR-013，T-032）**：①新建 `scripts/build_dlut_subset.py`——从本地全量 xlsx（27,465 词）按文学精读适配规则清洗（词性 adj/verb/noun/adv + 词长 ≤2 + 义项合并），生成 `references/lexicon-dlut-subset.json`（9,924 词，含来源/许可/引用声明，随包分发，D19 命中率 33/50 与全量一致）；②新建 `references/emotion-taxonomy.md`——DLUT 21 小类 → Plutchik 8 基元 → D19 词位三级映射表（NN/NM 双认 + NG 归类注记，词表演化归约裁决表）；③`scripts/lexicon_crosscheck.py` 升级 v3.3——**默认读仓库内子集**（--subset），子集缺失回退本地全量 xlsx（--dlut），NRC 文件缺失自动跳过抽样（降级不报错），一般使用者无需任何外部数据即可跑词表演化工具；④README §八.3 重写（子集已分发 + 维护者才需全量 + NRC 仍禁再分发）。 |

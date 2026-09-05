@@ -397,6 +397,12 @@ def main() -> int:
     p.add_argument("--doc-id", required=True, help="文档 ID（所有输出文件前缀、segment_id 前缀）")
     p.add_argument("--max-tokens", type=int, default=2000, help="单段理想 token 数（粗略，默认 2000）")
     p.add_argument("--overlap-chars", type=int, default=200, help="上下文锚点字符数（默认 200）")
+    p.add_argument("--fallback", dest="fallback", action="store_true", default=True,
+                       help="兜底切分（默认开启）：章节边界过少或单段过长时自动按字符数粗切")
+    p.add_argument("--no-fallback", dest="fallback", action="store_false",
+                   help="关闭兜底切分（仅用章节边界切分）")
+    p.add_argument("--fallback-chars", type=int, default=2000,
+                   help="兜底切分单段字符数（默认 2000，约等于 2000 token）")
     p.add_argument("--output-dir", type=str, default=None,
                    help="输出目录（默认为当前工作目录；产出 segments.jsonl + checkpoint.json 放这里）")
     args = p.parse_args()
@@ -507,6 +513,73 @@ def main() -> int:
                 seg_counter_start=seg_counter,
             )
             all_segments.extend(chapter_chunks)
+
+
+    # --- v3.8.5 兜底切分检查（T-057）---
+    if args.fallback and all_segments:
+        total_chars = sum(len(s.get("text", "")) for s in all_segments)
+        max_seg_chars = max(len(s.get("text", "")) for s in all_segments)
+        need_fallback = False
+        fallback_reason = ""
+        if len(boundaries) < 3 and total_chars > 5000:
+            need_fallback = True
+            fallback_reason = "章节边界过少(%d个)且全文较长(%d字符)" % (len(boundaries), total_chars)
+        elif max_seg_chars > 5000:
+            need_fallback = True
+            fallback_reason = "单段过长(%d字符)" % max_seg_chars
+        elif len(all_segments) < 3 and total_chars > 5000:
+            need_fallback = True
+            fallback_reason = "段数过少(%d段)且全文较长" % len(all_segments)
+
+        if need_fallback:
+            print("[preprocess] ⚠️ 触发兜底切分：%s" % fallback_reason)
+            print("[preprocess] 按字符数粗切（每段约 %d 字符，保留句子边界）..." % args.fallback_chars)
+            fallback_segs = []
+            seg_counter = 0
+            cur_start = 0
+            cur_text = ""
+            for i, ch in enumerate(original):
+                cur_text += ch
+                if len(cur_text) >= args.fallback_chars and ch in "。！？；!?;…":
+                    fallback_segs.append({
+                        "segment_index": seg_counter,
+                        "segment_id": "%s_seg_%04d" % (args.doc_id, seg_counter),
+                        "chapter": "兜底切分",
+                        "chapter_index": seg_counter + 1,
+                        "section_type": "body",
+                        "text": cur_text,
+                        "start_char": cur_start,
+                        "end_char": i + 1,
+                        "hash": compute_hash(cur_text),
+                        "approx_tokens": estimate_tokens(cur_text),
+                        "context_prev": "",
+                        "context_next": "",
+                        "is_polluted": False,
+                        "pollution_warning": "v3.8.5兜底切分(章节边界识别不足)",
+                    })
+                    seg_counter += 1
+                    cur_start = i + 1
+                    cur_text = ""
+            if cur_text.strip():
+                fallback_segs.append({
+                    "segment_index": seg_counter,
+                    "segment_id": "%s_seg_%04d" % (args.doc_id, seg_counter),
+                    "chapter": "兜底切分",
+                    "chapter_index": seg_counter + 1,
+                    "section_type": "body",
+                    "text": cur_text,
+                    "start_char": cur_start,
+                    "end_char": len(original),
+                    "hash": compute_hash(cur_text),
+                    "approx_tokens": estimate_tokens(cur_text),
+                    "context_prev": "",
+                    "context_next": "",
+                    "is_polluted": False,
+                    "pollution_warning": "v3.8.5兜底切分(章节边界识别不足)",
+                })
+            all_segments = fallback_segs
+            print("[preprocess] ✅ 兜底切分完成：%d 段（每段约%d字符）" % (len(all_segments), args.fallback_chars))
+            print("[preprocess] 💡 建议：后续可用 Phase 1.5 场景边界判断 + reshape_segments.py 做精细化重排")
 
     # --- 上下文锚点 ---
     all_segments = add_context_window(all_segments, args.overlap_chars)
