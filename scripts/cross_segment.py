@@ -3,6 +3,12 @@
 """
 scripts/cross_segment.py — 二阶段跨段分析 v2.6.0（架构可运行版）
 
+v3.8.4 增强信号（T-055）：
+  - D19.target（情感对象复用）：同角色在多段出现作为情感对象，可能存在跨段情感呼应
+  - D06（信息控制埋设-揭露）：前段埋设的信息在后段揭露，构成伏笔-回收关系
+  - D15（意象复用）：同意象在多段出现，可能构成象征线索
+  这些信号作为规则候选的补充，最终精排建议由 Agent LLM 二分类完成（见 SKILL.md Phase 3.5）。
+
 ⚠️ 重要：v2.5 规格 §4.4 P0 问题 #4 指出 v2.4 版 `build_cross_segments` 恒返回空列表是占位。
 本轮交付的是【启发式 + 规则先行】的可运行版本：
   1) 情绪强度序列突变点 → 标记为『因果/时序』候选（规则）；
@@ -136,7 +142,7 @@ def main() -> int:
     p.add_argument("--craft", default=None, help="craft.jsonl（可选）")
     p.add_argument("--window-size", type=int, default=15, help="滑窗大小（默认 15 段）")
     p.add_argument("--overlap", type=int, default=3, help="滑窗重叠（默认 3 段）")
-    p.add_argument("--output", default=None, help="输出文件路径（默认 <doc_id>_cross_segment.jsonl）")
+    p.add_argument("--output-dir", "--output", dest="output", default=None, help="输出文件路径（默认 <doc_id>_cross_segment.jsonl）")
     p.add_argument("--preserve-curated", action="store_true", default=True,
                    help="保留既有跨段关系中人工/LLM 核验过的条目（默认开；规则重跑只覆盖 _source='rule' 的）")
     p.add_argument("--no-preserve-curated", dest="preserve_curated", action="store_false",

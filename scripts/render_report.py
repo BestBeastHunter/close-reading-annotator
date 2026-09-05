@@ -390,7 +390,7 @@ def main() -> int:
     p.add_argument("--doc-id", required=True)
     p.add_argument("--segments", default=None, help="segments.jsonl（默认在 <cwd>/<doc_id>_segments.jsonl）")
     p.add_argument("--format", choices=["html", "md"], default="html")
-    p.add_argument("--output", default=None, help="输出文件（默认 <doc_id>_report.html/.md）")
+    p.add_argument("--output-dir", "--output", dest="output", default=None, help="输出文件（默认 <doc_id>_report.html/.md）")
     args = p.parse_args()
 
     cwd = Path.cwd()

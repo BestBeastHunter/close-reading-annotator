@@ -62,6 +62,10 @@ CHAPTER_PATTERNS: list[tuple[str, str]] = [
     (r"^\s*Prologue\s*$", "prologue"),
     (r"^\s*EPILOGUE\s*$", "epilogue"),
     (r"^\s*Epilogue\s*$", "epilogue"),
+    # v3.8.4 新增（T-050）：纯文字小节标题识别
+    (r"^\s*.{1,12}之[一二三四五六七八九十]+\s*$", "chapter"),  # 「异象之一」「林云之二」模式
+    (r"^\s*[0-9]+[、.．]\s*.{0,20}\s*$", "chapter"),  # 「1. xxx」「2、xxx」数字序列
+    (r"^\s*[一二三四五六七八九十]+[、.．]\s*.{0,20}\s*$", "chapter"),  # 「一、xxx」中文数字序列
 ]
 
 
@@ -69,6 +73,34 @@ def normalize_text(text: str) -> str:
     """与 Schema 严格一致：strip + \\r\\n / \\r → \\n。"""
     return text.replace("\r\n", "\n").replace("\r", "\n").strip()
 
+
+
+
+def is_possible_section_title(line: str, prev_line: str = "", next_line: str = "") -> bool:
+    """v3.8.4 新增（T-050）：短行启发式标题检测。
+    判断一行是否可能是小节标题：
+    - 长度较短（2-15字符）
+    - 前后有空行或短行
+    - 不以标点结尾（排除正文句子）
+    - 不是纯数字（已被 CHAPTER_PATTERNS 覆盖）
+    """
+    line = line.strip()
+    if not line or len(line) > 15 or len(line) < 2:
+        return False
+    # 不以句号、问号、感叹号、逗号结尾（正文句子特征）
+    if line[-1] in "。！？，、；：":
+        return False
+    # 包含空格且长度>10，可能是正文
+    if " " in line and len(line) > 10:
+        return False
+    # 前后有空行（标题特征）
+    has_blank_before = not prev_line.strip()
+    has_blank_after = not next_line.strip()
+    if has_blank_before and has_blank_after:
+        return True
+    if has_blank_before and len(line) <= 8:
+        return True
+    return False
 
 def compute_hash(text: str) -> str:
     return hashlib.sha256(normalize_text(text).encode("utf-8")).hexdigest()[:16]

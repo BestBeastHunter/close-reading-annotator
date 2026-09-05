@@ -2,7 +2,7 @@
 
 > **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
 > 完整 schema / 枚举 / 设计决策见 `references/schema.md`（批注层）、`references/aggregation-schema.md`（聚合层）、`SKILL.md`、工作区 `docs/design-decisions.md`。
-> 版本：skill v3.8.3 / annotation schema 2.10.0 / aggregation schema 3.1.0（决策 22 三域解耦）
+> 版本：skill v3.8.4 / annotation schema 2.10.0 / aggregation schema 3.1.0（决策 22 三域解耦）
 
 ---
 
@@ -337,7 +337,7 @@ python examples/llm_wrapper.py --mock
 
 ---
 
-## 八、产物目录清理（v3.8.3 新增）
+## 八、产物目录清理（v3.8.4 新增）
 
 ### 8.1 临时文件清理
 
@@ -374,3 +374,35 @@ Remove-Item _batch_*.jsonl -Force
 - `{doc_id}_quality_report.json` — 质量门报告（v3.4）
 - `{doc_id}_quant_metrics.jsonl` — 计算文学指标（v3.4）
 - `aggregation/` — 聚合层产物目录
+
+
+---
+
+## 九、PowerShell 编码与 batch 合并工作流（v3.8.4 新增）
+
+### 9.1 PowerShell 中文 doc_id 编码注意事项
+
+Windows PowerShell 下命令行传中文 doc_id 可能出现乱码。解决方案：
+
+1. **推荐使用英文 doc_id**：如 `qiuzhuang` 而非 `球状闪电`
+2. **使用 Python 包装**：将命令写入 .py 脚本文件再执行
+3. **设置控制台编码**：`chcp 65001` 切换到 UTF-8
+4. **annotate_segment.py v3.8.4 起会自动警告**：doc_id 包含非 ASCII 字符时打印提醒
+
+### 9.2 多 Agent 并行批注 batch 合并工作流
+
+多个 Agent 并行批注同一层时，避免写同一 JSONL 文件冲突：
+
+```bash
+# 1. 每个 Agent 各自写 batch 文件
+# Agent A: 输出 novel_batch_01_craft.jsonl
+# Agent B: 输出 novel_batch_02_craft.jsonl
+
+# 2. 全部完成后，用官方 merge_batch.py 合并
+python scripts/merge_batch.py     --batch-dir outputs/annotations/novel     --layer craft     --doc-id novel
+
+# 3. 合并后删除 batch 文件
+rm outputs/annotations/novel/_batch_*.jsonl
+```
+
+merge_batch.py 自动按 segment_id 去重（幂等 upsert），后出现的覆盖先出现的。
