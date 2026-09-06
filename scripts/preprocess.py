@@ -68,6 +68,26 @@ CHAPTER_PATTERNS: list[tuple[str, str]] = [
     (r"^\s*[一二三四五六七八九十]+[、.．]\s*.{0,20}\s*$", "chapter"),  # 「一、xxx」中文数字序列
 ]
 
+# v3.8.9 T-075：常见小说网站广告水印清理正则
+AD_WATERMARK_PATTERNS = [
+    r"本作品下载于[^\n]+",
+    r"更多好看小说下载敬请访问[^\n]+",
+    r"笔趣阁[^\n]*",
+    r"www\.[a-zA-Z0-9]+\.(com|net|org|cn)[^\n]*",
+    r"感谢打赏[^\n]*",
+    r"求收藏[^\n]*",
+    r"求推荐[^\n]*",
+    r"求月票[^\n]*",
+]
+
+def clean_ad_watermarks(text: str) -> str:
+    """清理常见小说网站广告水印。v3.8.9 T-075"""
+    for pattern in AD_WATERMARK_PATTERNS:
+        text = re.sub(pattern, "", text)
+    # 清理多余空行
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
 
 def normalize_text(text: str) -> str:
     """与 Schema 严格一致：strip + \\r\\n / \\r → \\n。"""

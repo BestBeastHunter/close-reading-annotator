@@ -119,6 +119,8 @@ def main() -> int:
     p.add_argument("--skip-annotate", action="store_true", help="跳过 Phase 2（骨架模式，只跑跨段/合并/报告）")
     p.add_argument("--calibrate", dest="calibrate", action="store_true", default=True, help="Phase 6 后处理校准（默认开启）：quality_score + confidence 重算 + DLUT 交叉验证")
     p.add_argument("--no-calibrate", dest="calibrate", action="store_false", help="关闭 Phase 6 后处理校准")
+    p.add_argument("--cleanup", action="store_true", default=True, help="完成后自动清理 _batch_*.jsonl 临时文件（默认开启），v3.8.9 T-076")
+    p.add_argument("--no-cleanup", action="store_false", dest="cleanup", help="不清理临时文件")
     args = p.parse_args()
 
     out_dir = Path(args.output_dir)
@@ -293,6 +295,15 @@ def main() -> int:
         print("⏭ Phase 6 跳过：--no-calibrate 已关闭")
 
     print("\n✅ run_pipeline 全部完成。产物目录：", out_dir)
+
+    # v3.8.9 T-076：自动清理 _batch_*.jsonl 临时文件
+    if getattr(args, "cleanup", True):
+        output_dir = Path(args.output_dir) if args.output_dir else Path.cwd()
+        batch_files = list(output_dir.glob("_batch_*.jsonl"))
+        if batch_files:
+            for bf in batch_files:
+                bf.unlink()
+            print(f"  🧹 已清理 {len(batch_files)} 个 _batch_*.jsonl 临时文件")
     return 0
 
 

@@ -93,7 +93,7 @@ def extract_imagery(craft_rows: list[dict]) -> list[dict]:
     return imagery_items
 
 
-def cluster_objects(imagery_items: list[dict], similarity_threshold: float = 0.6) -> dict[str, list[dict]]:
+def cluster_objects(imagery_items: list[dict], similarity_threshold: float = 0.6, include_all_types: bool = False) -> dict[str, list[dict]]:
     """
     将意象条目聚类为物件链。
     优先按 cluster 字段聚类，其次按 text 相似度。
@@ -109,8 +109,13 @@ def cluster_objects(imagery_items: list[dict], similarity_threshold: float = 0.6
             unclustered.append(item)
 
     # 第二遍：对无 cluster 的器物意象，按 text 相似度聚类
-    object_items = [i for i in unclustered if i["type"] == "器物意象"]
-    other_items = [i for i in unclustered if i["type"] != "器物意象"]
+    # v3.8.9 T-072：默认仅器物意象，--include-all-types 时包含所有类型
+    if include_all_types:
+        object_items = list(unclustered)
+        other_items = []
+    else:
+        object_items = [i for i in unclustered if i["type"] == "器物意象"]
+        other_items = [i for i in unclustered if i["type"] != "器物意象"]
 
     # 简单聚类：逐个分配到最相似的已有簇
     object_clusters = []  # list of (representative_text, items)
@@ -260,7 +265,7 @@ def main() -> int:
 
     # 聚类
     print(f"\n🚀 Step 2: 意象聚类（cluster优先 + text相似度，阈值={args.similarity_threshold}）...")
-    clusters = cluster_objects(imagery_items, args.similarity_threshold)
+    clusters = cluster_objects(imagery_items, args.similarity_threshold, include_all_types=args.include_all_types)
     print(f"   聚类数量: {len(clusters)}")
     for key, items in list(clusters.items())[:5]:
         print(f"     {key[:40]}: {len(items)} 条")
