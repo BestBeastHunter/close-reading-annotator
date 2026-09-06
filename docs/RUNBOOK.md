@@ -2,7 +2,7 @@
 
 > **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
 > 完整 schema / 枚举 / 设计决策见 `references/schema.md`（批注层）、`references/aggregation-schema.md`（聚合层）、`SKILL.md`、工作区 `docs/design-decisions.md`。
-> 版本：skill v3.13.1 / annotation schema 2.10.0 / aggregation schema 3.1.0（决策 22 三域解耦）
+> 版本：skill v3.13.2 / annotation schema 2.10.0 / aggregation schema 3.1.0（决策 22 三域解耦）
 
 ---
 
@@ -337,7 +337,7 @@ python examples/llm_wrapper.py --mock
 
 ---
 
-## 八、产物目录清理（v3.13.1 新增）
+## 八、产物目录清理（v3.13.2 新增）
 
 ### 8.1 临时文件清理
 
@@ -378,7 +378,7 @@ Remove-Item _batch_*.jsonl -Force
 
 ---
 
-## 九、PowerShell 编码与 batch 合并工作流（v3.13.1 新增）
+## 九、PowerShell 编码与 batch 合并工作流（v3.13.2 新增）
 
 ### 9.1 PowerShell 中文 doc_id 编码注意事项
 
@@ -387,7 +387,7 @@ Windows PowerShell 下命令行传中文 doc_id 可能出现乱码。解决方�
 1. **推荐使用英文 doc_id**：如 `qiuzhuang` 而非 `球状闪电`
 2. **使用 Python 包装**：将命令写入 .py 脚本文件再执行
 3. **设置控制台编码**：`chcp 65001` 切换到 UTF-8
-4. **annotate_segment.py v3.13.1 起会自动警告**：doc_id 包含非 ASCII 字符时打印提醒
+4. **annotate_segment.py v3.13.2 起会自动警告**：doc_id 包含非 ASCII 字符时打印提醒
 
 ### 9.2 多 Agent 并行批注 batch 合并工作流
 
@@ -407,7 +407,7 @@ rm outputs/annotations/novel/_batch_*.jsonl
 
 merge_batch.py 自动按 segment_id 去重（幂等 upsert），后出现的覆盖先出现的。
 
-## Runtime Scratchpad（v3.13.1 新增）
+## Runtime Scratchpad（v3.13.2 新增）
 
 **启用/关闭**：
 ```bash

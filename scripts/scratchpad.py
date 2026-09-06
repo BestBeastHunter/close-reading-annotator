@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-scripts/scratchpad.py — Runtime Scratchpad（运行时便签本）v3.13.1
+scripts/scratchpad.py — Runtime Scratchpad（运行时便签本）v3.13.2
+
+v3.13.2 T-117 增强：
+  - LLM 生成人物描述工具（update_description / generate_description_prompt / get_characters_needing_description）
+  - 待确认项注入 prompt（v3.13.0 已实现，to_summary 包含 pending_confirmation）
+
+v3.13.2 T-118 增强：
+  - 第三人称代词最近匹配指称消解（"他/她/他们"根据最近出现人物推断，标记为待确认）
+  - 事件相似度归并（v3.13.0 已实现，阈值0.75）
+  - 第一人称代词回指（v3.13.1 已实现，绑定主角）
 
 v3.13.1 T-115 增强：
   - 人物抽取增加 D10.speaker 对话说话者
@@ -51,10 +60,13 @@ try:
 except Exception:
     pass
 
-SCHEMA_VERSION = "3.13.1"
+SCHEMA_VERSION = "3.13.2"
 
 # 触发事件识别的 D01 功能值
 TRIGGER_EVENT_D01 = {"激励事件", "高潮", "转折", "下降行动", "结局"}
+
+# v3.13.2 T-118 新增：第三人称代词列表（用于最近匹配指称消解）
+THIRD_PERSON_PRONOUNS = {"他", "她", "它", "他们", "她们", "它们", "此人", "该人", "这人", "那人"}
 
 # 摘要长度控制（中文字符数，约等于 token 数的 1.5-2 倍）
 MAX_SUMMARY_CHARS = 1200  # 约 600-800 token
@@ -247,6 +259,75 @@ class Scratchpad:
             self.add_alias(canonical_name, alias)
         self._touch()
 
+    def update_description(self, canonical_name: str, description: str) -> bool:
+        """
+        v3.13.2 T-117 新增：更新人物描述。
+        由 Agent 调用 LLM 生成更准确的人物描述后，调用此方法更新 Scratchpad。
+        描述长度限制为 DESCRIPTION_MAX_LEN（50字）。
+        返回是否成功。
+        """
+        rec = self.get_character(canonical_name)
+        if rec is None:
+            return False
+        rec.description = description.strip()[:DESCRIPTION_MAX_LEN]
+        self._touch()
+        return True
+
+    def generate_description_prompt(self, canonical_name: str, max_related_events: int = 5) -> str:
+        """
+        v3.13.2 T-117 新增：构建 LLM 生成人物描述的 prompt 模板。
+        Agent 每处理 N 段（如每 10 段）后，可调用此方法生成 prompt，
+        然后用自身 LLM 生成描述，再调用 update_description 更新。
+        返回 prompt 字符串。
+        """
+        rec = self.get_character(canonical_name)
+        if rec is None:
+            return f"人物 {canonical_name} 不存在于 Scratchpad 中。"
+
+        # 收集相关事件
+        related_events = []
+        for evt in self.events:
+            if canonical_name in evt.involved_characters or canonical_name in evt.description:
+                related_events.append(f"- [{evt.event_id}] {evt.description}（{evt.segment_id}）")
+            if len(related_events) >= max_related_events:
+                break
+
+        # 构建 prompt
+        prompt = f"""你是叙事人物分析专家。请根据以下信息，为人物"{canonical_name}"生成一句话描述（不超过50字）。
+
+【人物基本信息】
+- 规范名：{canonical_name}
+- 别名：{', '.join(rec.aliases) if rec.aliases else '无'}
+- 首现段：{rec.first_segment}
+- 最近出现段：{rec.last_segment}
+- 出现次数：{rec.mention_count}
+- 当前描述：{rec.description if rec.description else '（无，需要生成）'}
+
+【相关事件】
+{chr(10).join(related_events) if related_events else '（暂无相关事件记录）'}
+
+【要求】
+1. 描述应概括人物的核心身份、性格特征和在故事中的作用
+2. 不超过50字
+3. 基于已有信息，不要编造未提及的内容
+4. 输出纯文本，不要 JSON 格式
+
+请生成描述："""
+        return prompt
+
+    def get_characters_needing_description(self, min_mentions: int = 3) -> list[str]:
+        """
+        v3.13.2 T-117 新增：获取需要生成/更新描述的人物列表。
+        条件：出现次数 >= min_mentions 且描述为空或过于简单（<10字）。
+        Agent 可调用此方法获取需要处理的人物，然后逐个生成描述。
+        """
+        needing = []
+        for rec in self.characters.values():
+            if rec.mention_count >= min_mentions:
+                if not rec.description or len(rec.description) < 10:
+                    needing.append(rec.canonical_name)
+        return needing
+
     # ========================================================================
     # 事件操作
     # ========================================================================
@@ -307,6 +388,52 @@ class Scratchpad:
                 best = ev
         return best
 
+    def _resolve_third_person_pronoun(self, pronoun: str, current_segment_id: str) -> Optional[CharacterRecord]:
+        """
+        v3.13.2 T-118 新增：第三人称代词最近匹配指称消解。
+        当遇到"他/她/他们"等第三人称代词时，根据最近出现的人物推断。
+        匹配优先级：
+          1. last_segment 最接近当前段的人物
+          2. mention_count 最高的人物
+        返回最可能的人物记录，或 None（无已知人物时）。
+        """
+        if not self.characters:
+            return None
+
+        # 提取当前段的序号
+        current_idx = 0
+        if "_seg_" in current_segment_id:
+            try:
+                current_idx = int(current_segment_id.rsplit("_seg_", 1)[1])
+            except ValueError:
+                pass
+
+        best_rec = None
+        best_score = -1.0
+
+        for rec in self.characters.values():
+            # 计算 last_segment 与当前段的距离（越近越好）
+            last_idx = 0
+            if rec.last_segment and "_seg_" in rec.last_segment:
+                try:
+                    last_idx = int(rec.last_segment.rsplit("_seg_", 1)[1])
+                except ValueError:
+                    pass
+            distance = abs(current_idx - last_idx)
+            recency_score = max(0, 1.0 - distance / 20.0)  # 20段内衰减
+
+            # mention_count 加权（出现越多越可能是代词指代对象）
+            frequency_score = min(rec.mention_count / 10.0, 1.0)
+
+            # 综合评分：近期出现 0.6 + 出现频率 0.4
+            total_score = recency_score * 0.6 + frequency_score * 0.4
+
+            if total_score > best_score:
+                best_score = total_score
+                best_rec = rec
+
+        return best_rec
+
     def close_event(self, event_id: str) -> bool:
         """标记事件为已结束。返回是否成功。"""
         for ev in self.events:
@@ -348,7 +475,16 @@ class Scratchpad:
             target = d19.get("target")
             if target and isinstance(target, str) and target.strip():
                 target_name = target.strip()
-                if not self.is_known_character(target_name):
+                # v3.13.2 T-118 新增：第三人称代词最近匹配
+                if target_name in THIRD_PERSON_PRONOUNS:
+                    resolved = self._resolve_third_person_pronoun(target_name, segment_id)
+                    if resolved:
+                        # 标记为待确认（让 LLM 后续确认）
+                        self.mark_pending_confirmation(resolved.canonical_name, target_name)
+                        resolved.last_segment = segment_id
+                        resolved.mention_count += 1
+                    # 如果无已知人物，跳过（不创建新人物）
+                elif not self.is_known_character(target_name):
                     # 检查是否为可能的别名
                     similar = self.find_similar_character(target_name)
                     if similar:
@@ -385,15 +521,23 @@ class Scratchpad:
                     if isinstance(item, dict):
                         char_name = item.get("character")
                         if char_name and isinstance(char_name, str) and char_name.strip():
-                            if not self.is_known_character(char_name.strip()):
-                                similar = self.find_similar_character(char_name.strip())
+                            cn = char_name.strip()
+                            # v3.13.2 T-118 新增：第三人称代词最近匹配
+                            if cn in THIRD_PERSON_PRONOUNS:
+                                resolved = self._resolve_third_person_pronoun(cn, segment_id)
+                                if resolved:
+                                    self.mark_pending_confirmation(resolved.canonical_name, cn)
+                                    resolved.last_segment = segment_id
+                                    resolved.mention_count += 1
+                            elif not self.is_known_character(cn):
+                                similar = self.find_similar_character(cn)
                                 if similar:
-                                    self.mark_pending_confirmation(similar.canonical_name, char_name.strip())
+                                    self.mark_pending_confirmation(similar.canonical_name, cn)
                                 else:
-                                    self.add_character(char_name.strip(), segment_id=segment_id)
+                                    self.add_character(cn, segment_id=segment_id)
                                     new_chars += 1
                             else:
-                                rec = self.get_character(char_name.strip())
+                                rec = self.get_character(cn)
                                 if rec:
                                     rec.last_segment = segment_id
                                     rec.mention_count += 1
@@ -577,6 +721,11 @@ class Scratchpad:
                 pending_items.append(f"{alias}/{rec.canonical_name} 是否为同一人物？")
         if pending_items:
             lines.append("待确认：" + "；".join(pending_items[:3]))
+
+        # v3.13.2 T-117 新增：描述生成提示（当有重要人物缺少描述时）
+        needing_desc = self.get_characters_needing_description(min_mentions=5)
+        if needing_desc:
+            lines.append("提示：以下人物需要生成描述（调用 generate_description_prompt）：" + ", ".join(needing_desc[:3]))
 
         summary = "\n".join(lines)
 
