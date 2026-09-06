@@ -417,6 +417,8 @@ def main() -> int:
                    help="layer JSONL 输出目录（默认当前）")
     p.add_argument("--llm-cmd", default=None,
                    help="外部 LLM 命令；未指定则进入手动粘贴模式（单段模式）")
+    p.add_argument("--scene-aware", action="store_true", default=False,
+                       help="v3.8.6 新增：启用 LumberChunker 场景感知模式。自动检查 output-dir 下是否有 scene_boundary.json，如有则提示用 reshape_segments.py 重排后再批注；确保每个 segment 是一个语义单元，提升批注精度")
     p.add_argument("--input-json", default=None,
                    help="批注结果文件（单 JSON / JSON 数组 / JSONL）。非交互注入：行对象自带 segment_id，"
                         "层类型自动推断；已完成 (segment, layer) 默认跳过")
@@ -429,6 +431,21 @@ def main() -> int:
     p.add_argument("--no-auto-fix", dest="auto_fix", action="store_false",
                    help="关闭 craft 层自动修复（校验失败直接退出）")
     args = p.parse_args()
+
+    # v3.8.6 T-060：--scene-aware 场景感知模式检查
+    if args.scene_aware:
+        out_dir = Path(args.output_dir) if args.output_dir else Path.cwd()
+        boundary_path = out_dir / "scene_boundary.json"
+        if boundary_path.is_file():
+            print("[annotate] ✅ 检测到 scene_boundary.json（LumberChunker 场景边界已生成）")
+            print("[annotate] 💡 建议：先用 reshape_segments.py 重排为场景级 segments，再批注（提升精度）")
+            print("[annotate]    python scripts/reshape_segments.py --segments <segments.jsonl> --boundaries %s --original <原文> --doc-id %s --output-dir <out>" % (boundary_path, args.doc_id))
+        else:
+            print("[annotate] ⚠️ --scene-aware 已启用，但未检测到 scene_boundary.json")
+            print("[annotate] 💡 建议先用官方 wrapper 生成场景边界（提升批注精度）：")
+            print("[annotate]    python examples/scene_boundary_wrapper.py --segments <segments.jsonl> --output %s --doc-id %s" % (boundary_path, args.doc_id))
+            print("[annotate]    然后用 reshape_segments.py 重排为场景级 segments")
+
 
     layers = [l.strip() for l in args.layers.split(",") if l.strip() in ALL_LAYERS]
     if not layers:
