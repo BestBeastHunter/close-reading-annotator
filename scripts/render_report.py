@@ -72,6 +72,7 @@ def _load_aggregation(out_dir: Path, doc_id: str) -> dict:
     for key, fname in [
         ("causal_graph", f"{doc_id}_causal_graph.json"),
         ("object_chains", f"{doc_id}_object_chains.json"),
+        ("character_network", f"{doc_id}_character_network.json"),
         ("writing_techniques", f"{doc_id}_writing_techniques.json"),
     ]:
         fpath = agg_dir / fname
@@ -163,6 +164,10 @@ def _render_aggregation_html(agg: dict, doc_id: str) -> str:
     if "object_chains" in agg:
         stats = agg["object_chains"].get("statistics", {})
         parts.append(f'<tr><td>物件链数</td><td>{stats.get("total_chains", 0)}</td></tr>')
+    if "character_network" in agg:
+        cn = agg["character_network"]
+        parts.append(f'<tr><td>人物关系边数</td><td>{cn.get("total_edges", 0)}</td></tr>')
+        parts.append(f'<tr><td>关系社区数</td><td>{len(cn.get("communities", []))}</td></tr>')
     parts.append('</table>')
 
     parts.append('</div>')

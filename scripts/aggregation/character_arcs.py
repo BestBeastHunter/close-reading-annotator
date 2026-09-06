@@ -219,6 +219,128 @@ def classify_arc(trajectory: list[dict]) -> dict:
     }
 
 
+
+
+# v3.11.0 T-096~T-097：性格特征聚合
+TRAIT_LEXICON = {
+    "责任感强": {"keywords": ["必须", "责任", "担当", "配平", "保护", "守护"], "weight": 1.0},
+    "勇敢": {"keywords": ["冲", "不怕", "勇往直前", "牺牲", "冲锋"], "weight": 1.0},
+    "懦弱": {"keywords": ["怕", "退缩", "不敢", "逃避", "颤抖"], "weight": 1.0},
+    "机智": {"keywords": ["想办法", "灵机", "巧妙", "计策", "反应快"], "weight": 1.0},
+    "谨慎": {"keywords": ["小心", "仔细", "检查", "确认", "稳妥"], "weight": 1.0},
+    "冲动": {"keywords": ["二话不说", "直接", "贸然", "不顾", "急躁"], "weight": 1.0},
+    "忠诚": {"keywords": ["服从", "坚守", "不背叛", "信任", "追随"], "weight": 1.0},
+    "善良": {"keywords": ["心疼", "同情", "帮助", "温柔", "关心"], "weight": 1.0},
+    "残忍": {"keywords": ["冷酷", "无情", "残忍", "狠毒", "冷漠"], "weight": 1.0},
+    "幽默": {"keywords": ["笑", "调侃", "玩笑", "滑稽", "逗"], "weight": 0.8},
+    "严肃": {"keywords": ["严肃", "凝重", "沉重", "不苟言笑", "认真"], "weight": 0.8},
+    "敏感": {"keywords": ["在意", "多想", "敏感", "细腻", "察觉"], "weight": 0.8},
+    "豁达": {"keywords": ["无所谓", "看开", "洒脱", "不在乎", "释然"], "weight": 0.8},
+    "固执": {"keywords": ["坚持", "倔强", "不改", "认定", "顽固"], "weight": 0.8},
+    "灵活": {"keywords": ["随机应变", "变通", "灵活", "调整", "适应"], "weight": 0.8},
+    "自信": {"keywords": ["肯定", "确信", "自信", "胸有成竹", "没问题"], "weight": 0.9},
+    "自卑": {"keywords": ["不如", "差", "不行", "没用", "自卑"], "weight": 0.9},
+    "冷静": {"keywords": ["冷静", "镇定", "平静", "不慌", "沉稳"], "weight": 0.9},
+    "焦虑": {"keywords": ["焦虑", "紧张", "不安", "心慌", "着急"], "weight": 0.9},
+    "果断": {"keywords": ["果断", "立刻", "马上", "毫不犹豫", "决断"], "weight": 0.9},
+    "犹豫": {"keywords": ["犹豫", "迟疑", "纠结", "徘徊", "拿不定"], "weight": 0.9},
+    "无私": {"keywords": ["奉献", "牺牲", "为别人", "不计较", "付出"], "weight": 0.9},
+    "自私": {"keywords": ["只为自己", "自私", "不顾别人", "利己", "贪心"], "weight": 0.9},
+    "温柔": {"keywords": ["温柔", "柔和", "轻声", "温暖", "体贴"], "weight": 0.9},
+    "冷酷": {"keywords": ["冷酷", "冰冷", "冷淡", "无情", "刻薄"], "weight": 0.9},
+    "热情": {"keywords": ["热情", "热烈", "积极", "主动", "热心"], "weight": 0.9},
+    "冷漠": {"keywords": ["冷漠", "冷淡", "无所谓", "漠不关心", "疏离"], "weight": 0.9},
+    "理想主义": {"keywords": ["理想", "信念", "追求", "梦想", "执着"], "weight": 0.8},
+    "现实主义": {"keywords": ["现实", "实际", "务实", "利益", "权衡"], "weight": 0.8},
+}
+
+
+def infer_character_traits(character_name: str, emotion_rows: list, craft_rows: list,
+                            structure_rows: list, segments: list) -> list[dict]:
+    """v3.11.0 T-097：基于 D18+D19+D14-D17 跨段统计推断性格特征"""
+    trait_scores = defaultdict(lambda: {"score": 0.0, "evidence": [], "segments": set()})
+
+    # 1. 从 D18 人物语言指纹推断（口癖/言说动词→性格倾向）
+    for row in craft_rows:
+        craft = row.get("layers", {}).get("craft") or row.get("craft") or {}
+        d18 = craft.get("D18_character_voice", []) or []
+        seg_id = row.get("segment_id", "")
+        for item in d18:
+            if isinstance(item, dict):
+                char = item.get("character", "")
+                if char and (char in character_name or character_name in char):
+                    pattern = item.get("pattern", "")
+                    # 口癖匹配性格词表
+                    for trait, info in TRAIT_LEXICON.items():
+                        for kw in info["keywords"]:
+                            if kw in pattern:
+                                trait_scores[trait]["score"] += info["weight"]
+                                trait_scores[trait]["evidence"].append(pattern[:50])
+                                trait_scores[trait]["segments"].add(seg_id)
+
+    # 2. 从 D19 情感序列推断（持续情感模式→性格特质）
+    char_emotions = defaultdict(list)
+    for row in emotion_rows:
+        emotion = row.get("layers", {}).get("emotion", {})
+        if not emotion:
+            emotion = row.get("emotion", {})
+        primary = emotion.get("D19_emotion_analysis") or emotion.get("primary") or {}
+        if isinstance(primary, dict):
+            target = primary.get("target", "")
+            emo = primary.get("emotion", "")
+            intensity = primary.get("intensity", 5)
+            seg_id = row.get("segment_id", "")
+            if target and (target in character_name or character_name in target):
+                char_emotions[emo].append({"intensity": intensity, "segment_id": seg_id})
+
+    # 情感模式→性格映射
+    emotion_to_trait = {
+        "焦虑": "焦虑", "紧张": "焦虑", "不安": "敏感",
+        "愤怒": "冲动", "暴躁": "冲动",
+        "平静": "冷静", "镇定": "冷静",
+        "喜悦": "热情", "兴奋": "热情",
+        "悲伤": "敏感", "忧愁": "敏感",
+        "恐惧": "懦弱", "害怕": "懦弱",
+    }
+    for emo, instances in char_emotions.items():
+        if len(instances) >= 2:  # 至少出现2次才算特质
+            trait = emotion_to_trait.get(emo)
+            if trait and trait in TRAIT_LEXICON:
+                avg_intensity = sum(i["intensity"] for i in instances) / len(instances)
+                trait_scores[trait]["score"] += len(instances) * 0.5 * (avg_intensity / 10.0)
+                trait_scores[trait]["evidence"].append(f"情感'{emo}'出现{len(instances)}次")
+                for i in instances:
+                    trait_scores[trait]["segments"].add(i["segment_id"])
+
+    # 3. 从 craft 层修辞/意象偏好推断（性格侧面）
+    for row in craft_rows:
+        craft = row.get("layers", {}).get("craft") or row.get("craft") or {}
+        seg_id = row.get("segment_id", "")
+        # D14 修辞偏好
+        d14 = craft.get("D14_rhetoric", []) or []
+        for item in d14:
+            if isinstance(item, dict):
+                detail = item.get("detail", "")
+                for trait, info in TRAIT_LEXICON.items():
+                    for kw in info["keywords"]:
+                        if kw in detail:
+                            trait_scores[trait]["score"] += info["weight"] * 0.3
+                            trait_scores[trait]["segments"].add(seg_id)
+
+    # 排序并取 top-5
+    sorted_traits = sorted(trait_scores.items(), key=lambda x: -x[1]["score"])[:5]
+    result = []
+    for trait, data in sorted_traits:
+        if data["score"] > 0:
+            result.append({
+                "trait": trait,
+                "frequency": len(data["segments"]),
+                "confidence": round(min(data["score"] / 5.0, 0.95), 3),
+                "evidence": data["evidence"][:3],
+                "evidence_segments": sorted(data["segments"])[:10],
+            })
+    return result
+
 def main() -> int:
     p = argparse.ArgumentParser(description="v2.9 Step 3 — 角色弧线重建（Character Arcs）")
     p.add_argument("--segments", required=True, help="segments.jsonl 路径")
@@ -337,6 +459,7 @@ def main() -> int:
             "d19_coverage": d19_count,
             "d04_coverage": d04_count,
             "arc_classification": arc_classification,
+            "traits_aggregated": infer_character_traits(canonical_name, emotion_rows, craft_rows, structure_rows, segments),
             "key_moments": [p for p in trajectory if p.get("has_arc_shift") or (p.get("intensity") and p["intensity"] >= 7)][:10],
             "trajectory_sample": trajectory[:30],  # 只保留前30个点，避免文件过大
         }
