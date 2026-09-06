@@ -414,6 +414,32 @@ class Scratchpad:
                 best = ev
         return best
 
+    @staticmethod
+    def _get_segment_index(segment_id: str) -> int:
+        """
+        v3.13.2 T-118 修复（A-AUDIT 否决③）：从 segment_id 中提取序号。
+        格式：{doc_id}_seg_{NNN} 或 {doc_id}_scene_{NNN}。
+        提取失败返回 0。
+        """
+        if not segment_id:
+            return 0
+        # 尝试 _seg_ 或 _scene_ 后的数字
+        for sep in ("_seg_", "_scene_"):
+            if sep in segment_id:
+                try:
+                    return int(segment_id.rsplit(sep, 1)[1])
+                except (ValueError, IndexError):
+                    pass
+        # 兜底：提取末尾数字
+        import re
+        m = re.search(r"(\d+)$", segment_id)
+        if m:
+            try:
+                return int(m.group(1))
+            except ValueError:
+                pass
+        return 0
+
     def _resolve_third_person_pronoun(self, pronoun: str, current_segment_id: str) -> Optional[CharacterRecord]:
         """
         v3.13.2 T-118 新增：第三人称代词最近匹配指称消解。
@@ -579,8 +605,17 @@ class Scratchpad:
         if emotion:
             d19 = emotion.get("D19_emotion_analysis") or emotion
             target = d19.get("target")
-            if target and isinstance(target, str) and target.strip():
-                target_name = target.strip()
+            # v3.13.2 T-115 修复（A-AUDIT 否决①）：target 可能是 dict（{"name":"...",...}）或 str
+            if target:
+                if isinstance(target, dict):
+                    target_name = (target.get("name") or "").strip()
+                elif isinstance(target, str):
+                    target_name = target.strip()
+                else:
+                    target_name = ""
+            else:
+                target_name = ""
+            if target_name:
                 # v3.13.2 T-118 新增：第三人称代词最近匹配
                 if target_name in THIRD_PERSON_PRONOUNS:
                     resolved = self._resolve_third_person_pronoun(target_name, segment_id)
@@ -610,13 +645,23 @@ class Scratchpad:
                 for sec in secondary:
                     if isinstance(sec, dict):
                         sec_target = sec.get("target")
-                        if sec_target and isinstance(sec_target, str) and sec_target.strip():
-                            if not self.is_known_character(sec_target.strip()):
-                                similar = self.find_similar_character(sec_target.strip())
+                        # v3.13.2 T-115 修复（A-AUDIT 否决①）：sec_target 可能是 dict 或 str
+                        if sec_target:
+                            if isinstance(sec_target, dict):
+                                sec_target_name = (sec_target.get("name") or "").strip()
+                            elif isinstance(sec_target, str):
+                                sec_target_name = sec_target.strip()
+                            else:
+                                sec_target_name = ""
+                        else:
+                            sec_target_name = ""
+                        if sec_target_name:
+                            if not self.is_known_character(sec_target_name):
+                                similar = self.find_similar_character(sec_target_name)
                                 if similar:
-                                    self.mark_pending_confirmation(similar.canonical_name, sec_target.strip())
+                                    self.mark_pending_confirmation(similar.canonical_name, sec_target_name)
                                 else:
-                                    self.add_character(sec_target.strip(), segment_id=segment_id)
+                                    self.add_character(sec_target_name, segment_id=segment_id)
                                     new_chars += 1
 
         # 2. 从 craft 层提取人物（D18.character）
@@ -694,7 +739,7 @@ class Scratchpad:
                 # 找到第一个出现的主要人物（mention_count 最高或 first_segment 最早）
                 protagonist = max(
                     self.characters.values(),
-                    key=lambda r: (r.mention_count, -get_segment_index(r.first_segment) if r.first_segment else 0),
+                    key=lambda r: (r.mention_count, -self._get_segment_index(r.first_segment) if r.first_segment else 0),
                     default=None,
                 )
                 if protagonist and "我" not in protagonist.aliases and "我" != protagonist.canonical_name:
@@ -734,23 +779,38 @@ class Scratchpad:
                 new_events += 1
 
         # 4. v3.13.1 T-115 增强：从 interpretation 层提取事件（D06 埋设-揭露 → 伏笔-回收事件对）
+        # v3.13.2 T-115 修复（A-AUDIT 否决②）：真实枚举是"隐藏/揭示"，兼容"埋设/揭露"
         if interpretation:
             d06 = interpretation.get("D06_information_control")
             if isinstance(d06, dict):
                 d06_type = d06.get("type")
-                if d06_type in ("埋设", "揭露"):
-                    content = d06.get("content", "")[:30]
-                    event_desc = f"信息{d06_type}：{content}"[:50]
+                # 归一化：隐藏/埋设 → 信息埋设(open)；揭示/揭露 → 信息揭示(close)
+                if d06_type in ("隐藏", "埋设"):
+                    d06_norm = "埋设"
+                elif d06_type in ("揭示", "揭露"):
+                    d06_norm = "揭露"
+                else:
+                    d06_norm = None
+                if d06_norm:
+                    # content 可能是 str 或 dict（A-AUDIT 否决②防御）
+                    raw_content = d06.get("content", "")
+                    if isinstance(raw_content, dict):
+                        content = str(raw_content.get("text") or raw_content.get("description") or "")[:30]
+                    elif isinstance(raw_content, str):
+                        content = raw_content[:30]
+                    else:
+                        content = str(raw_content)[:30]
+                    event_desc = f"信息{d06_norm}：{content}"[:50]
                     event_id = self.add_event(
                         segment_id=segment_id,
                         description=event_desc,
-                        event_type=f"信息{d06_type}",
+                        event_type=f"信息{d06_norm}",
                     )
                     new_events += 1
 
                     # v3.13.1 T-115 新增：伏笔-回收事件对关联
                     # 当检测到"揭露"时，查找之前最近的"埋设"事件，形成关联
-                    if d06_type == "揭露" and event_id:
+                    if d06_norm == "揭露" and event_id:
                         # 查找之前的埋设事件（按 segment_id 倒序找最近的）
                         previous_plant = None
                         for evt in reversed(self.events):
@@ -1013,7 +1073,49 @@ def _self_test() -> int:
     assert stats["total_events"] >= 1
     print(f"[PASS] 12. 统计信息：{stats}")
 
-    print(f"\n=== 自测试完成：12/12 PASS ===")
+    # 13. D19.target 是 dict（真实产物形状，A-AUDIT 否决①修复验证）
+    pad13 = Scratchpad(doc_id="selftest_13", total_segments=5)
+    emotion_dict = {
+        "D19_emotion_analysis": {
+            "target": {"name": "布吕诺船长", "relation": "对话对象"},
+            "secondary": [
+                {"emotion": "好奇", "target": {"name": "我", "relation": "叙述者"}},
+            ],
+        }
+    }
+    r13 = pad13.update_from_annotation(segment_id="selftest_13_seg_0001", emotion=emotion_dict)
+    assert "布吕诺船长" in pad13.characters, "D19.target dict 未提取到人物"
+    assert r13["new_characters"] >= 1, f"D19.target dict 新人物数应为>=1，实际{r13['new_characters']}"
+    print(f"[PASS] 13. D19.target dict 提取（真实产物形状）：新人物={r13['new_characters']}")
+
+    # 14. D06 隐藏/揭示（真实枚举，A-AUDIT 否决②修复验证）
+    pad14 = Scratchpad(doc_id="selftest_14", total_segments=5)
+    interp_hide = {"D06_information_control": {"type": "隐藏", "content": "陆沉预案真相"}}
+    r14a = pad14.update_from_annotation(segment_id="selftest_14_seg_0001", interpretation=interp_hide)
+    interp_reveal = {"D06_information_control": {"type": "揭示", "content": "陆沉预案真相被发现"}}
+    r14b = pad14.update_from_annotation(segment_id="selftest_14_seg_0005", interpretation=interp_reveal)
+    assert any(e.event_type == "信息埋设" for e in pad14.events), "D06 隐藏未生成信息埋设事件"
+    assert any(e.event_type == "信息揭露" for e in pad14.events), "D06 揭示未生成信息揭露事件"
+    assert any(e.status == "closed" and e.event_type == "信息埋设" for e in pad14.events), "D06 揭示时未关闭对应埋设"
+    print(f"[PASS] 14. D06 隐藏/揭示（真实枚举）：埋设事件+揭露事件+伏笔回收闭合")
+
+    # 15. 编辑距离别名匹配（A-AUDIT 验收③）
+    pad15 = Scratchpad(doc_id="selftest_15", total_segments=5)
+    pad15.add_character("斯特里克兰德", segment_id="selftest_15_seg_0001")
+    similar = pad15.find_similar_character("思特里克兰德")  # 编辑距离=1
+    assert similar is not None and similar.canonical_name == "斯特里克兰德", f"编辑距离匹配失败：{similar}"
+    print(f"[PASS] 15. 编辑距离别名匹配：斯特里克兰德→思特里克兰德（距离=1）")
+
+    # 16. _get_segment_index 函数（A-AUDIT 否决③修复验证）
+    idx1 = Scratchpad._get_segment_index("selftest_seg_0042")
+    idx2 = Scratchpad._get_segment_index("selftest_scene_007")
+    idx3 = Scratchpad._get_segment_index("invalid_id")
+    assert idx1 == 42, f"_get_segment_index(seg_0042) 返回 {idx1}，期望 42"
+    assert idx2 == 7, f"_get_segment_index(scene_007) 返回 {idx2}，期望 7"
+    assert idx3 == 0, f"_get_segment_index(invalid) 返回 {idx3}，期望 0"
+    print(f"[PASS] 16. _get_segment_index 函数：seg_0042→{idx1}, scene_007→{idx2}, invalid→{idx3}")
+
+    print(f"\n=== 自测试完成：16/16 PASS ===")
     return 0
 
 

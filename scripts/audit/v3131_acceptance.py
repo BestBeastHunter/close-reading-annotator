@@ -135,6 +135,54 @@ def main():
     check("scratchpad --self-test 通过", "12/12 PASS" in result.stdout or "ALL PASS" in result.stdout,
           f"exit_code={result.returncode}")
 
+    # 9. 真实数据形状端到端测试（A-AUDIT 否决④：v3.13.2 修复 T-115/T-116）
+    print("\n--- 9. 真实数据形状端到端测试（A-AUDIT 否决④修复验证）---")
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(SCRIPTS_DIR))
+        from scratchpad import Scratchpad
+
+        # 9.1 D19.target 是 dict（真实产物形状）
+        pad1 = Scratchpad(doc_id="audit_test", total_segments=5)
+        emotion_dict = {
+            "D19_emotion_analysis": {
+                "target": {"name": "布吕诺船长", "relation": "对话对象"},
+                "secondary": [
+                    {"emotion": "好奇", "target": {"name": "我", "relation": "叙述者"}},
+                ],
+            }
+        }
+        r1 = pad1.update_from_annotation(segment_id="audit_test_seg_0001", emotion=emotion_dict)
+        check("D19.target dict 提取人物", "布吕诺船长" in pad1.characters,
+              f"new_chars={r1.get('new_characters', 0)}, chars={list(pad1.characters.keys())}")
+
+        # 9.2 D06.type 是"隐藏"/"揭示"（真实枚举）
+        pad2 = Scratchpad(doc_id="audit_test2", total_segments=5)
+        interp_hide = {"D06_information_control": {"type": "隐藏", "content": "陆沉预案真相"}}
+        r2 = pad2.update_from_annotation(segment_id="audit_test2_seg_0001", interpretation=interp_hide)
+        interp_reveal = {"D06_information_control": {"type": "揭示", "content": "陆沉预案真相被发现"}}
+        r3 = pad2.update_from_annotation(segment_id="audit_test2_seg_0005", interpretation=interp_reveal)
+        check("D06 隐藏生成信息埋设事件", any(e.event_type == "信息埋设" for e in pad2.events),
+              f"events={[(e.event_id, e.event_type) for e in pad2.events]}")
+        check("D06 揭示生成信息揭露事件", any(e.event_type == "信息揭露" for e in pad2.events),
+              f"events={[(e.event_id, e.event_type) for e in pad2.events]}")
+        check("D06 揭示时关闭对应埋设", any(e.status == "closed" and e.event_type == "信息埋设" for e in pad2.events),
+              f"events={[(e.event_id, e.event_type, e.status) for e in pad2.events]}")
+
+        # 9.3 _get_segment_index 函数存在且正常（A-AUDIT 否决③修复）
+        idx = Scratchpad._get_segment_index("audit_test_seg_0042")
+        check("_get_segment_index 函数正常", idx == 42, f"返回={idx}，期望=42")
+
+        # 9.4 编辑距离别名匹配（A-AUDIT 验收③）
+        pad3 = Scratchpad(doc_id="audit_test3", total_segments=5)
+        pad3.add_character("斯特里克兰德", segment_id="audit_test3_seg_0001")
+        similar = pad3.find_similar_character("思特里克兰德")  # 编辑距离=1
+        check("编辑距离别名匹配（斯特里克兰德→思特里克兰德）", similar is not None and similar.canonical_name == "斯特里克兰德",
+              f"匹配结果={similar.canonical_name if similar else None}")
+
+    except Exception as e:
+        check("真实数据形状端到端测试", False, f"异常: {type(e).__name__}: {e}")
+
     # 输出结果
     print("\n" + "=" * 60)
     print("验收结果")
