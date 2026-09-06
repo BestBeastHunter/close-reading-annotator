@@ -117,6 +117,43 @@ def is_phase_completed(doc_id: str, phase_key: str, base_dir: Path | None = None
     return bool(ckpt and ckpt.get(phase_key))
 
 
+# ---------------- v3.13.0 Runtime Scratchpad 快照 ----------------
+
+def save_scratchpad_snapshot(checkpoint: dict, scratchpad) -> None:
+    """
+    v3.13.0：将 Runtime Scratchpad 序列化为 dict 存入 checkpoint。
+    scratchpad 可以是 Scratchpad 对象或 None（None 时不保存）。
+    """
+    if scratchpad is None:
+        return
+    try:
+        if hasattr(scratchpad, "to_json"):
+            checkpoint["scratchpad_snapshot"] = json.loads(scratchpad.to_json())
+        elif isinstance(scratchpad, dict):
+            checkpoint["scratchpad_snapshot"] = scratchpad
+    except Exception as e:
+        print(f"[checkpoint] ⚠️ Scratchpad 快照保存失败：{e}", file=sys.stderr)
+
+
+def load_scratchpad_snapshot(checkpoint):
+    """
+    v3.13.0：从 checkpoint 中恢复 Runtime Scratchpad。
+    返回 Scratchpad 对象或 None（checkpoint 无快照时）。
+    """
+    if checkpoint is None or not isinstance(checkpoint, dict) or "scratchpad_snapshot" not in checkpoint:
+        return None
+    try:
+        from scratchpad import Scratchpad
+        snapshot = checkpoint["scratchpad_snapshot"]
+        if isinstance(snapshot, str):
+            return Scratchpad.from_json(snapshot)
+        elif isinstance(snapshot, dict):
+            return Scratchpad.from_json(json.dumps(snapshot, ensure_ascii=False))
+    except Exception as e:
+        print(f"[checkpoint] ⚠️ Scratchpad 快照恢复失败：{e}", file=sys.stderr)
+    return None
+
+
 # ---------------- CLI ----------------
 
 def _base_dir(args) -> Path | None:

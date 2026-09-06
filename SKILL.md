@@ -1,12 +1,12 @@
----
+﻿---
 name: close-reading-annotator
-version: 3.12.0
+version: 3.13.0
 description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言、craft层自动修复(v3.8.1)、三项校准功能(v3.8.2：quality_score/confidence/DLUT交叉验证)。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v3.12.0
+# 四层精读批注 Skill v3.13.0
 
 对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
@@ -220,6 +220,52 @@ python scripts/reshape_segments.py \
 - 新旧 ID 映射保证下游可追溯（批注产物中的 segment_id 可用映射表回溯到原始粗切段）
 
 **Phase 2 使用重排结果**：将 `annotate_segment.py` 的 `--segments` 参数指向 `{doc_id}_final_segments.jsonl` 即可，其余流程不变。
+
+
+### 3.1.6 Runtime Scratchpad（运行时便签本，v3.13.0 新增）
+
+> **定位**：Agent 在单本书批注过程中自主维护的轻量级工作记忆区。不是"缩小版聚合层"，而是"输入质量增强层"——为聚合层提供更干净的输入数据。
+
+**解决的核心问题**：
+1. 无状态批注导致指称不一致（同一人物用不同指称："江洋"/"我"/"灰鹰三号"）
+2. 开放型字段（人物/事件）塞进封闭集 schema 导致大量 null
+
+**工作机制**：
+```
+每段处理前：Scratchpad 摘要（已知人物/事件）→ 注入 Prompt → LLM 批注更一致
+每段处理后：从批注结果中提取新人物/事件 → 更新 Scratchpad
+全书完成后：Scratchpad 作为额外输入 → 聚合层（entity_graph / character_biographies）
+```
+
+**数据结构**：
+- `CharacterRecord`：canonical_name / aliases / first_segment / last_segment / description / mention_count / related_events
+- `EventRecord`：event_id / description / segment_id / involved_characters / event_type / status
+- `Scratchpad`：characters（dict）+ events（list）+ 元信息
+
+**摘要注入格式**（500-800 token）：
+```
+【便签本摘要 - 处理到第 23 段】
+已知人物：
+- 江洋（别名：我、灰鹰三号）：预备役中尉，泡防御技术员
+- 林澜（别名：林上尉）：协调员，江洋暗恋对象
+已知事件：
+- evt_001（seg_0001）：将军提出"陆沉预案"
+待确认：大猪/二猪 是否为同一人物？
+```
+
+**CLI 参数**：
+- `--scratchpad`：启用 Runtime Scratchpad（默认启用）
+- `--no-scratchpad`：关闭 Runtime Scratchpad
+
+**持久化**：
+- 独立文件：`{doc_id}_scratchpad.json`
+- checkpoint 快照：`{doc_id}_checkpoint.json` 中的 `scratchpad_snapshot` 字段
+- 断点续跑时自动从 checkpoint 或独立文件恢复
+
+**信息抽取规则**（v3.13.0 规则版）：
+- 人物：从 D19.target（情感对象）+ D18.character（语言指纹）提取
+- 事件：从 D01 ∈ {激励事件/高潮/转折/下降行动/结局} 的段提取
+- 别名聚合：编辑距离相似度 ≥0.6 时标记为"待确认"，注入 prompt 时让 LLM 顺便确认
 
 ### 3.2 Phase 2：逐片段批注（核心循环）
 
@@ -614,3 +660,4 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 ---
 
 *精读批注 Skill v3.3.0 — "先验证，再声称；每段每层落盘；二阶段跨段；四层合一，情感入轨；全局聚合，图谱拼图。从『规格正确』走向『实现可运行』。"*
+

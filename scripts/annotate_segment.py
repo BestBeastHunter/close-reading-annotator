@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 scripts/annotate_segment.py — 批注调度壳 v2.7.0（工程化修复轮，决策 18）
@@ -69,12 +69,15 @@ from checkpoint import (  # noqa: E402
     load_checkpoint,
     mark_layer_completed,
     save_checkpoint,
+    save_scratchpad_snapshot,
+    load_scratchpad_snapshot,
 )
 from span_locator import repair_craft_row  # noqa: E402
 from validate_output import (  # noqa: E402
     SUPPORTED_SCHEMA_VERSIONS,
     _call_validator,
 )
+from scratchpad import Scratchpad  # noqa: E402  v3.13.0 新增：Runtime Scratchpad
 
 SCHEMA_VERSION = "2.10.0"  # v3.8.3 修复：v3.6.0 已升级 annotation schema 到 2.10.0，此处忘记同步
 
@@ -166,7 +169,7 @@ def _emotion_manual_block(seg: dict, struct_blk: dict | None) -> str:
     return "\n".join(lines)
 
 
-def _manual_prompt(seg: dict, layers: list[str], struct_blk: dict | None = None) -> str:
+def _manual_prompt(seg: dict, layers: list[str], struct_blk: dict | None = None, scratchpad_summary: str | None = None) -> str:
     # 修复（决策 18 遗漏①）：context_prev/next 不再硬截断到 200 字符——
     # preprocess 已按 --overlap-chars（默认 200，可配置更大）生成上下文锚点，
     # 这里完整呈现，避免丢跨段判断信息（D07 视角切换 / D06 埋设）；
@@ -183,9 +186,13 @@ def _manual_prompt(seg: dict, layers: list[str], struct_blk: dict | None = None)
         "-------------------- 原文片段 begin --------------------\n",
         f"{seg.get('text_span', {}).get('text', '')}\n",
         "-------------------- 原文片段 end ----------------------\n",
+    ]
+    if scratchpad_summary:
+        out.append("\n" + scratchpad_summary + "\n")
+    out.extend([
         f"请按 close-reading-annotator SKILL.md 产出 layers={layers} 的整行 JSON"
         "（顶层 schema_version/segment_id + layers 内容）。\n",
-    ]
+    ])
     if "emotion" in layers:
         out.append(_emotion_manual_block(seg, struct_blk))
     out.append(
@@ -195,12 +202,14 @@ def _manual_prompt(seg: dict, layers: list[str], struct_blk: dict | None = None)
     return "".join(out)
 
 
-def _run_llm_external(cmd: str, seg: dict, layers: list[str], struct_blk: dict | None = None) -> dict:
+def _run_llm_external(cmd: str, seg: dict, layers: list[str], struct_blk: dict | None = None, scratchpad_summary: str | None = None) -> dict:
     payload: dict = {
         "segment": seg,
         "request_layers": layers,
         "schema_version": SCHEMA_VERSION,
     }
+    if scratchpad_summary:
+        payload["scratchpad_summary"] = scratchpad_summary  # v3.13.0：Runtime Scratchpad 摘要
     if "emotion" in layers:
         payload["structure_trigger_block"] = struct_blk  # 供外部 LLM 做 P4 触发判定
     # v2.7.0（T-013c 加固）：子进程统一 UTF-8（Windows 下 text=True 默认 GBK 解码，会因中文输出崩）
@@ -232,8 +241,8 @@ def _run_llm_external(cmd: str, seg: dict, layers: list[str], struct_blk: dict |
         sys.exit(3)
 
 
-def _run_llm_manual(seg: dict, layers: list[str], struct_blk: dict | None = None) -> dict:
-    print(_manual_prompt(seg, layers, struct_blk), end="")
+def _run_llm_manual(seg: dict, layers: list[str], struct_blk: dict | None = None, scratchpad_summary: str | None = None) -> dict:
+    print(_manual_prompt(seg, layers, struct_blk, scratchpad_summary), end="")
     try:
         raw = sys.stdin.read()
     except KeyboardInterrupt:
@@ -273,6 +282,30 @@ def _pad_metadata(obj: dict, seg: dict) -> None:
         obj["text_span"] = seg["text_span"]
     obj.setdefault("segment_id", seg["segment_id"])
     obj.setdefault("schema_version", SCHEMA_VERSION)
+
+
+def _update_scratchpad_from_obj(scratchpad: Scratchpad, segment_id: str, layer: str, obj: dict) -> None:
+    """v3.13.0：从批注结果中提取新人物/事件，更新 Scratchpad。"""
+    try:
+        layers = obj.get("layers") or {}
+        if layer == "structure":
+            structure = layers.get("structure") or obj.get("structure")
+            if structure:
+                scratchpad.update_from_annotation(segment_id, structure=structure)
+        elif layer == "emotion":
+            emotion = layers.get("emotion") or obj.get("emotion")
+            if emotion:
+                scratchpad.update_from_annotation(segment_id, emotion=emotion)
+        elif layer == "craft":
+            craft = layers.get("craft") or obj.get("craft")
+            if craft:
+                scratchpad.update_from_annotation(segment_id, craft=craft)
+        elif layer == "interpretation":
+            interp = layers.get("interpretation") or obj.get("interpretation")
+            if interp:
+                scratchpad.update_from_annotation(segment_id, interpretation=interp)
+    except Exception as e:
+        print(f"[annotate] ⚠️ Scratchpad 更新失败（{segment_id} {layer}）：{e}")
 
 
 def _upsert_jsonl(path: Path, segment_id: str, obj: dict) -> None:
@@ -430,6 +463,10 @@ def main() -> int:
                    help="craft 层校验失败时自动修复 span/引文（v3.8.1 默认开启）")
     p.add_argument("--no-auto-fix", dest="auto_fix", action="store_false",
                    help="关闭 craft 层自动修复（校验失败直接退出）")
+    p.add_argument("--scratchpad", dest="use_scratchpad", action="store_true", default=True,
+                   help="v3.13.0 新增：启用 Runtime Scratchpad（运行时便签本），每段处理前注入已知人物/事件摘要，处理后更新（默认启用）")
+    p.add_argument("--no-scratchpad", dest="use_scratchpad", action="store_false",
+                   help="关闭 Runtime Scratchpad")
     args = p.parse_args()
 
     # v3.8.7 T-061：doc_id 合法性校验（PowerShell 中文 doc_id 乱码问题的传参层修复）
@@ -473,6 +510,30 @@ def main() -> int:
     # checkpoint 定位（v2.5.1：--checkpoint 路径优先，否则 cwd）
     base_dir = Path(args.checkpoint).parent if args.checkpoint else Path.cwd()
 
+    # v3.13.0：Runtime Scratchpad 初始化（优先从 checkpoint 快照恢复，其次从独立文件加载，最后创建新实例）
+    scratchpad = None
+    if getattr(args, "use_scratchpad", True):
+        # 优先从 checkpoint 恢复
+        existing_ckpt = load_checkpoint(args.doc_id, base_dir)
+        if existing_ckpt:
+            scratchpad = load_scratchpad_snapshot(existing_ckpt)
+            if scratchpad:
+                print(f"[annotate] 📝 Scratchpad 已从 checkpoint 恢复（{scratchpad.stats()['total_characters']} 人物 / {scratchpad.stats()['total_events']} 事件）")
+        # 其次从独立文件加载
+        if scratchpad is None:
+            scratchpad_path = out_dir / f"{args.doc_id}_scratchpad.json"
+            if scratchpad_path.is_file():
+                try:
+                    scratchpad = Scratchpad.load(scratchpad_path)
+                    print(f"[annotate] 📝 Scratchpad 已从文件加载（{scratchpad.stats()['total_characters']} 人物 / {scratchpad.stats()['total_events']} 事件）")
+                except Exception as e:
+                    print(f"[annotate] ⚠️ Scratchpad 文件加载失败，创建新实例：{e}")
+                    scratchpad = None
+        # 最后创建新实例
+        if scratchpad is None:
+            scratchpad = Scratchpad(doc_id=args.doc_id, total_segments=len(seg_ids))
+            print("[annotate] 📝 Scratchpad 已创建（新实例）")
+
     def ensure_ckpt():
         if load_checkpoint(args.doc_id, base_dir) is None:
             _append_checkpoint_created(segs, args, base_dir)
@@ -500,14 +561,19 @@ def main() -> int:
                 continue
             for layer in pending_layers:
                 struct_blk = _load_structure_block(out_dir, args.doc_id, sid) if layer == "emotion" else None
+                # v3.13.0：获取 Scratchpad 摘要
+                sp_summary = scratchpad.to_summary(current_segment_index=seg.get("segment_index", 0)) if scratchpad else None
                 try:
-                    obj = _run_llm_external(args.llm_cmd, seg, [layer], struct_blk)
+                    obj = _run_llm_external(args.llm_cmd, seg, [layer], struct_blk, sp_summary)
                 except SystemExit:
                     failed.append((sid, layer, "外部 LLM 调用失败（详见上方）"))
                     continue
                 ok, msg = _commit_after_validate(seg, layer, obj, out_dir, args, base_dir)
                 if ok:
                     print(f"✅ {sid} {layer} 落盘")
+                    # v3.13.0：更新 Scratchpad
+                    if scratchpad:
+                        _update_scratchpad_from_obj(scratchpad, sid, layer, obj)
                 else:
                     failed.append((sid, layer, msg))
         # 汇总
@@ -517,6 +583,16 @@ def main() -> int:
                 print(f"   ✖ {sid} {layer}: {reason[:200]}")
             return 1
         print("\n✅ 批量全部完成")
+        # v3.13.0：保存 Scratchpad
+        if scratchpad:
+            scratchpad_path = out_dir / f"{args.doc_id}_scratchpad.json"
+            scratchpad.save(scratchpad_path)
+            # 同时存入 checkpoint 快照
+            ckpt = load_checkpoint(args.doc_id, base_dir)
+            if ckpt:
+                save_scratchpad_snapshot(ckpt, scratchpad)
+                save_checkpoint(ckpt, base_dir)
+            print(f"[annotate] 📝 Scratchpad 已保存（{scratchpad.stats()['total_characters']} 人物 / {scratchpad.stats()['total_events']} 事件）→ {scratchpad_path} + checkpoint 快照")
         return 0
 
     # ---------- 模式 B：--input-json 非交互注入 ----------
@@ -551,6 +627,9 @@ def main() -> int:
             ok, msg = _commit_after_validate(seg, layer, obj, out_dir, args, base_dir)
             if ok:
                 print(f"✅ {sid} {layer} 落盘 → {out_dir / f'{args.doc_id}_{layer}.jsonl'}")
+                # v3.13.0：更新 Scratchpad
+                if scratchpad:
+                    _update_scratchpad_from_obj(scratchpad, sid, layer, obj)
             else:
                 failed.append((sid, layer, msg))
                 print(msg)
@@ -558,6 +637,16 @@ def main() -> int:
             print(f"\n⚠️ 注入完成：{len(failed)}/{len(objects)} 条失败（已打印明细）")
             return 1
         print("\n✅ 注入全部落盘")
+        # v3.13.0：保存 Scratchpad
+        if scratchpad:
+            scratchpad_path = out_dir / f"{args.doc_id}_scratchpad.json"
+            scratchpad.save(scratchpad_path)
+            # 同时存入 checkpoint 快照
+            ckpt = load_checkpoint(args.doc_id, base_dir)
+            if ckpt:
+                save_scratchpad_snapshot(ckpt, scratchpad)
+                save_checkpoint(ckpt, base_dir)
+            print(f"[annotate] 📝 Scratchpad 已保存（{scratchpad.stats()['total_characters']} 人物 / {scratchpad.stats()['total_events']} 事件）→ {scratchpad_path} + checkpoint 快照")
         return 0
 
     # ---------- 模式 C：单段（手动 / 外部 LLM）----------
@@ -577,17 +666,27 @@ def main() -> int:
             continue
         print(f"\n🚀 开始批注 {args.segment} layer={layer}")
         struct_blk = _load_structure_block(out_dir, args.doc_id, args.segment) if layer == "emotion" else None
+        # v3.13.0：获取 Scratchpad 摘要
+        sp_summary = scratchpad.to_summary(current_segment_index=seg.get("segment_index", 0)) if scratchpad else None
         if args.llm_cmd:
-            obj = _run_llm_external(args.llm_cmd, seg, [layer], struct_blk)
+            obj = _run_llm_external(args.llm_cmd, seg, [layer], struct_blk, sp_summary)
         else:
-            obj = _run_llm_manual(seg, [layer], struct_blk)
+            obj = _run_llm_manual(seg, [layer], struct_blk, sp_summary)
         _pad_metadata(obj, seg)
         ok, msg = _commit_after_validate(seg, layer, obj, out_dir, args, base_dir)
         if ok:
             print(f"✅ {args.segment} {layer} 落盘 → {out_dir / f'{args.doc_id}_{layer}.jsonl'}")
+            # v3.13.0：更新 Scratchpad
+            if scratchpad:
+                _update_scratchpad_from_obj(scratchpad, args.segment, layer, obj)
         else:
             print(msg)
             return 3
+    # v3.13.0：保存 Scratchpad
+    if scratchpad:
+        scratchpad_path = out_dir / f"{args.doc_id}_scratchpad.json"
+        scratchpad.save(scratchpad_path)
+        print(f"[annotate] 📝 Scratchpad 已保存（{scratchpad.stats()['total_characters']} 人物 / {scratchpad.stats()['total_events']} 事件）→ {scratchpad_path}")
     return 0
 
 
@@ -610,3 +709,4 @@ def _commit_after_validate(
 
 if __name__ == "__main__":
     sys.exit(main())
+
