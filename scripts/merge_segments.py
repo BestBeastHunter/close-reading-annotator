@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+⚠️ DEPRECATED（v3.8.7，T-065）：本脚本已标记为废弃，建议使用 reshape_segments.py。
+reshape_segments.py 功能更完整（支持 --original 按字符位置重切、新旧 ID 映射、章节边界自动识别）。
+本脚本将在 v3.9 或 v4.0 中正式移除。
+
+
 scripts/merge_segments.py — 场景边界后处理重排工具（v3.8.4 新增，T-051）
 
 基于 LLM 输出的 scene_boundary.json，对粗切 segments.jsonl 做合并/拆分，

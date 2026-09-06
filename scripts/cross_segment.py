@@ -303,6 +303,51 @@ def main() -> int:
             "dup_skipped": dup_skipped,
         },
     }
+
+    # v3.8.7 T-062：增强信号规则（D19.target 情感对象复用 + D15 意象复用）
+    try:
+        if emotion_rows:
+            target_segments = {}
+            for er in emotion_rows:
+                d19 = (er.get("layers") or {}).get("emotion") or {}
+                primary = d19.get("D19_emotion_analysis") or d19.get("primary") or {}
+                target = primary.get("target") if isinstance(primary, dict) else None
+                if target and isinstance(target, str) and len(target) <= 20:
+                    target_segments.setdefault(target, []).append(er.get("segment_id"))
+            for target, seg_ids in target_segments.items():
+                if len(seg_ids) >= 2:
+                    for i in range(len(seg_ids) - 1):
+                        refs.append({
+                            "ref_id": "cf_d19_%04d" % len(refs),
+                            "relation_type": "呼应",
+                            "source": {"segment_id": seg_ids[i], "chapter": None, "anchor_text": "情感对象: %s" % target, "span": None},
+                            "target": {"segment_id": seg_ids[i+1], "chapter": None, "anchor_text": "情感对象: %s" % target, "span": None},
+                            "confidence": 0.5,
+                            "note": "D19.target 情感对象复用（%s 在多段出现），规则候选，建议 LLM 二分类精排" % target,
+                        })
+        if craft_rows:
+            imagery_segments = {}
+            for cr in craft_rows:
+                craft = cr.get("craft") or {}
+                for item in craft.get("D15_imagery", []) or []:
+                    if isinstance(item, dict):
+                        text = item.get("text", "")
+                        if text and len(text) <= 30:
+                            imagery_segments.setdefault(text, []).append(cr.get("segment_id"))
+            for imagery, seg_ids in imagery_segments.items():
+                if len(seg_ids) >= 2:
+                    for i in range(len(seg_ids) - 1):
+                        refs.append({
+                            "ref_id": "cf_d15_%04d" % len(refs),
+                            "relation_type": "呼应",
+                            "source": {"segment_id": seg_ids[i], "chapter": None, "anchor_text": "意象: %s" % imagery, "span": None},
+                            "target": {"segment_id": seg_ids[i+1], "chapter": None, "anchor_text": "意象: %s" % imagery, "span": None},
+                            "confidence": 0.5,
+                            "note": "D15 意象复用（%s 在多段出现），规则候选，建议 LLM 二分类精排" % imagery,
+                        })
+    except Exception as e:
+        print("[cross_segment] ⚠️ 增强信号规则执行失败（不影响主流程）: %s" % e)
+
     with out_path.open("w", encoding="utf-8") as f:
         f.write(json.dumps(result, ensure_ascii=False) + "\n")
 

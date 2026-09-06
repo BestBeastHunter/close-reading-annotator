@@ -432,6 +432,15 @@ def main() -> int:
                    help="关闭 craft 层自动修复（校验失败直接退出）")
     args = p.parse_args()
 
+    # v3.8.7 T-061：doc_id 合法性校验（PowerShell 中文 doc_id 乱码问题的传参层修复）
+    if args.doc_id:
+        non_ascii = [c for c in args.doc_id if ord(c) > 127]
+        if non_ascii:
+            print("[annotate] ⚠️ 警告：doc_id 包含非 ASCII 字符（%s）" % "".join(non_ascii[:5]))
+            print("[annotate]    PowerShell 下中文 doc_id 可能导致文件名乱码，建议使用英文 doc_id")
+            print("[annotate]    如确需中文 doc_id，请确保终端编码为 UTF-8（chcp 65001）")
+
+
     # v3.8.6 T-060：--scene-aware 场景感知模式检查
     if args.scene_aware:
         out_dir = Path(args.output_dir) if args.output_dir else Path.cwd()
