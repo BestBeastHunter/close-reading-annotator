@@ -3,6 +3,10 @@
 """
 v3.0 Step 4 — 因果链生成（Causal Graph）
 
+v3.14.0 T-121 增强：
+  - event_function（事件功能简化版）：开启/发展/高潮/收束（基于 D01，查特曼场景功能模型）
+  - narrative_speed（叙事速度简化版）：场景/概述/省略/正常（基于文本长度+D10对话，热奈特叙事速度）
+
 基于方案文档和专家评审C修正实现：
 - 因果边生成源：cross_segment.jsonl 中的"因果"关系 + "伏笔-回收"关系
 - D01 功能序列从生成端移到校验端：只用于过滤反向边（target在source之前）和孤立边
@@ -38,7 +42,7 @@ try:
 except Exception:
     pass
 
-SCHEMA_VERSION = "3.4.0"
+SCHEMA_VERSION = "3.5.0"
 
 # 因果边类型
 EDGE_TYPE_CAUSE = "CAUSE"      # 直接导致
@@ -164,6 +168,7 @@ def build_segment_info_index(
             "d08_time": structure.get("D08", {}).get("time") if isinstance(structure.get("D08"), dict) else None,
             "d08_space": structure.get("D08", {}).get("space") if isinstance(structure.get("D08"), dict) else None,
             "d09_themes": structure.get("D09") or [],
+            "d10_has_dialogue": bool(structure.get("D10_dialogue")) or bool(structure.get("D10")),  # v3.14.0 T-121：D10对话存在性
             "text_length": text_len,
             "emotion_primary": None,
             "emotion_targets": [],
@@ -202,6 +207,48 @@ def build_segment_info_index(
                 info_index[seg_id]["characters"] = chars
 
     return info_index
+
+
+def compute_event_function(d01_function: str | None) -> str:
+    """
+    v3.14.0 T-121 新增：事件功能简化版（查特曼场景功能模型，简化为4种）。
+    - 开启：D01 ∈ {背景铺垫, 激励事件}
+    - 发展：D01 ∈ {上升行动, 过渡}
+    - 高潮：D01 ∈ {高潮, 转折}
+    - 收束：D01 ∈ {下降行动, 结局}
+    - 未知：D01 为空或不在上述集合
+    """
+    if not d01_function:
+        return "未知"
+    if d01_function in {"背景铺垫", "激励事件"}:
+        return "开启"
+    if d01_function in {"上升行动", "过渡"}:
+        return "发展"
+    if d01_function in {"高潮", "转折"}:
+        return "高潮"
+    if d01_function in {"下降行动", "结局"}:
+        return "收束"
+    return "未知"
+
+
+def compute_narrative_speed(text_length: int, avg_text_length: float, has_dialogue: bool, d08_time: str | None = None) -> str:
+    """
+    v3.14.0 T-121 新增：叙事速度简化版（热奈特：场景/概述/省略）。
+    - 场景：文本长度 > 平均段长 * 1.5 且有 D10 对话
+    - 概述：文本长度 < 平均段长 * 0.5
+    - 省略：文本长度 < 平均段长 * 0.2 且 D08 有时间跳跃标记
+    - 正常：其他情况
+    """
+    if avg_text_length <= 0:
+        return "正常"
+    ratio = text_length / avg_text_length
+    if ratio > 1.5 and has_dialogue:
+        return "场景"
+    if ratio < 0.2 and d08_time and ("跳" in d08_time or "年后" in d08_time or "次日" in d08_time):
+        return "省略"
+    if ratio < 0.5:
+        return "概述"
+    return "正常"
 
 
 def compute_salience_score(
@@ -503,7 +550,7 @@ def build_causal_chains(edges: list[dict]) -> list[dict]:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="v3.0 Step 4 — 因果链生成（Causal Graph）")
+    p = argparse.ArgumentParser(description="v3.0 Step 4 — 因果链生成（Causal Graph），v3.14.0 T-121 新增 event_function + narrative_speed")
     p.add_argument("--cross-segment", required=True, help="cross_segment.jsonl 路径")
     p.add_argument("--structure", required=True, help="structure.jsonl 路径（用于D01校验端）")
     p.add_argument("--emotion", default=None, help="emotion.jsonl 路径（v3.13.1 可选，用于event_attributes情感基调）")
@@ -551,6 +598,16 @@ def main() -> int:
     # 计算平均段长
     total_length = sum(info.get("text_length", 0) for info in info_index.values())
     avg_segment_length = total_length / len(info_index) if info_index else 0
+
+    # v3.14.0 T-121：为每个段计算 event_function 和 narrative_speed
+    for seg_id, info in info_index.items():
+        info["event_function"] = compute_event_function(info.get("d01_function"))
+        info["narrative_speed"] = compute_narrative_speed(
+            info.get("text_length", 0),
+            avg_segment_length,
+            info.get("d10_has_dialogue", False),
+            info.get("d08_time")
+        )
     print(f"📊 平均段长: {avg_segment_length:.0f} 字符")
 
     # 统计 cross_refs 类型分布
@@ -596,13 +653,16 @@ def main() -> int:
         causal_result = compute_causal_structure(seg_id, edges, info_index, salience_result["salience_score"])
         event_attrs = build_event_attributes(seg_id, info_index)
 
+        seg_info = info_index.get(seg_id, {})
         node_info = {
             "segment_id": seg_id,
-            "d01_function": info_index.get(seg_id, {}).get("d01_function"),
+            "d01_function": seg_info.get("d01_function"),
             "chapter": None,  # 从 edge 中获取
             "event_hierarchy": salience_result,
             "causal_structure": causal_result,
             "event_attributes": event_attrs,
+            "event_function": seg_info.get("event_function"),  # v3.14.0 T-121：事件功能（开启/发展/高潮/收束）
+            "narrative_speed": seg_info.get("narrative_speed"),  # v3.14.0 T-121：叙事速度（场景/概述/省略/正常）
         }
 
         # 从 edge 中获取 chapter
@@ -623,6 +683,11 @@ def main() -> int:
             satellite_event_count += 1
         if causal_result["is_turning_point"]:
             turning_point_count += 1
+
+    # v3.14.0 T-121：统计 event_function 和 narrative_speed 分布
+    from collections import Counter
+    event_func_dist = dict(Counter(n.get("event_function", "未知") for n in nodes_enhanced))
+    speed_dist = dict(Counter(n.get("narrative_speed", "正常") for n in nodes_enhanced))
 
     # v3.13.1 新增：为每个 edge 新增 causal_type / is_turning_point
     for edge in edges:
@@ -673,6 +738,8 @@ def main() -> int:
             "turning_point_count": turning_point_count,
             "avg_salience_score": avg_salience,
             "top_salience_events": top_salience_events,
+            "event_function_distribution": event_func_dist,  # v3.14.0 T-121：事件功能分布
+            "narrative_speed_distribution": speed_dist,  # v3.14.0 T-121：叙事速度分布
         },
         "validation": {
             "method": "d01_function_sequence_v1",

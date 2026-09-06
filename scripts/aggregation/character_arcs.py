@@ -3,6 +3,10 @@
 """
 v2.9 Step 3 — 角色弧线重建（Character Arcs）
 
+v3.14.0 T-122 增强：
+  - actantial_role（行动元角色简化版）：主要行动者/辅助者/阻碍者（格雷马斯行动元模型）
+  - desire_structure（欲望结构简化版）：pursues/driven_by/opposed_by（格雷马斯欲望结构）
+
 纯数据聚合（不调 LLM）：
   1. 按实体 ID 聚合该实体在所有 segment 中的 D04 + D19 数据
   2. 按 segment_index 时序排序，生成时间序列
@@ -43,7 +47,7 @@ try:
 except Exception:
     pass
 
-SCHEMA_VERSION = "3.4.0"
+SCHEMA_VERSION = "3.5.0"
 
 # 情绪极性映射
 POLARITY_SCORE = {
@@ -587,8 +591,99 @@ def compute_dialogue_dominance(craft_rows: list, canonical_name: str) -> dict:
     }
 
 
+
+def compute_actantial_role(
+    agency_curve: dict,
+    total_segments_present: int,
+    total_segments: int,
+) -> dict:
+    """
+    v3.14.0 T-122 新增：行动元角色简化版（格雷马斯行动元模型，简化为3种）。
+    - 主要行动者：agency_curve 中"主动"占比 > 50% 且出场段数 > 30%
+    - 辅助者：出场段数 < 30% 且主动占比 <= 50%
+    - 阻碍者：agency_curve 中"被动"占比 > 50%
+    - 未知：其他情况
+    """
+    distribution = agency_curve.get("agency_distribution", {}) if isinstance(agency_curve, dict) else {}
+    active_ratio = distribution.get("主动", 0)
+    passive_ratio = distribution.get("被动", 0)
+    presence_ratio = total_segments_present / total_segments if total_segments > 0 else 0
+
+    if active_ratio > 0.5 and presence_ratio > 0.3:
+        role = "主要行动者"
+    elif passive_ratio > 0.5:
+        role = "阻碍者"
+    elif presence_ratio < 0.3:
+        role = "辅助者"
+    else:
+        role = "未知"
+
+    return {
+        "role": role,
+        "active_ratio": round(active_ratio, 2),
+        "passive_ratio": round(passive_ratio, 2),
+        "presence_ratio": round(presence_ratio, 2),
+        "criteria": "主动>50%且出场>30%=主要行动者；被动>50%=阻碍者；出场<30%=辅助者；其他=未知",
+    }
+
+
+def compute_desire_structure(
+    character_traits: list[dict],
+    structure_data: dict[str, dict],
+    entity_segs: list[str],
+    character_name: str,
+) -> dict:
+    """
+    v3.14.0 T-122 新增：欲望结构简化版（格雷马斯欲望结构，简化为3个维度）。
+    - pursues：追求什么，从 D01 为"激励事件"或"高潮"的段中提取
+    - driven_by：被什么驱动，从 character_traits 中最高频的特征推断
+    - opposed_by：被什么阻碍，从 D01 为"转折"或"下降行动"的段中提取（简化版）
+    """
+    # pursues：从激励事件/高潮段提取
+    pursues = []
+    for seg_id in entity_segs:
+        seg_data = structure_data.get(seg_id, {})
+        d01 = seg_data.get("D01") if isinstance(seg_data, dict) else None
+        if d01 in {"激励事件", "高潮"}:
+            # 提取该段的 D09 主题作为追求目标
+            d09 = seg_data.get("D09") if isinstance(seg_data, dict) else None
+            if d09 and isinstance(d09, list):
+                pursues.extend(d09[:2])
+            elif d09 and isinstance(d09, str):
+                pursues.append(d09)
+    pursues = list(dict.fromkeys(pursues))[:3]  # 去重，最多3个
+
+    # driven_by：从 character_traits 中最高频的特征推断
+    driven_by = ""
+    if character_traits and isinstance(character_traits, list):
+        # 按 frequency 排序，取最高频的特征
+        sorted_traits = sorted(character_traits, key=lambda t: t.get("frequency", 0), reverse=True)
+        if sorted_traits:
+            driven_by = sorted_traits[0].get("trait", "")
+
+    # opposed_by：从转折/下降行动段提取（简化版）
+    opposed_by = []
+    for seg_id in entity_segs:
+        seg_data = structure_data.get(seg_id, {})
+        d01 = seg_data.get("D01") if isinstance(seg_data, dict) else None
+        if d01 in {"转折", "下降行动"}:
+            d09 = seg_data.get("D09") if isinstance(seg_data, dict) else None
+            if d09 and isinstance(d09, list):
+                opposed_by.extend(d09[:1])
+            elif d09 and isinstance(d09, str):
+                opposed_by.append(d09)
+    opposed_by = list(dict.fromkeys(opposed_by))[:2]  # 去重，最多2个
+
+    return {
+        "pursues": pursues if pursues else ["（未明确）"],
+        "driven_by": driven_by if driven_by else "（未明确）",
+        "opposed_by": opposed_by if opposed_by else ["（未明确）"],
+        "source": "pursues来自激励事件/高潮段D09主题；driven_by来自最高频性格特征；opposed_by来自转折/下降行动段D09主题",
+    }
+
+
 def main() -> int:
-    p = argparse.ArgumentParser(description="v2.9 Step 3 — 角色弧线重建（Character Arcs）")
+    p = argparse.ArgumentParser(description="v2.9 Step 3 — 角色弧线重建（Character Arcs），v3.14.0 T-122 新增 actantial_role + desire_structure")
     p.add_argument("--segments", required=True, help="segments.jsonl 路径")
     p.add_argument("--structure", required=True, help="structure.jsonl 路径")
     p.add_argument("--emotion", required=True, help="emotion.jsonl 路径")
@@ -730,6 +825,17 @@ def main() -> int:
             "agency_curve": compute_agency_curve(entity_segs, structure_data, craft_rows, canonical_name),
             "density_distribution": compute_density_distribution(entity_segs, len(segments)),
             "dialogue_dominance": compute_dialogue_dominance(craft_rows, canonical_name),
+            "actantial_role": compute_actantial_role(  # v3.14.0 T-122：行动元角色（主要行动者/辅助者/阻碍者）
+                compute_agency_curve(entity_segs, structure_data, craft_rows, canonical_name),
+                len(entity_segs),
+                len(segments),
+            ),
+            "desire_structure": compute_desire_structure(  # v3.14.0 T-122：欲望结构（pursues/driven_by/opposed_by）
+                infer_character_traits(canonical_name, emotion_rows, craft_rows, structure_rows, segments),
+                structure_data,
+                entity_segs,
+                canonical_name,
+            ),
         }
         character_arcs.append(character_arc)
 

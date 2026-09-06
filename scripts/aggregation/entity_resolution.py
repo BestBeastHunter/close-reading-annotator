@@ -298,6 +298,7 @@ def main() -> int:
     p.add_argument("--emotion", default=None, help="emotion.jsonl 路径（用于提取角色名种子）")
     p.add_argument("--craft", default=None, help="craft.jsonl 路径（用于提取角色名种子）")
     p.add_argument("--structure", default=None, help="structure.jsonl 路径（备用）")
+    p.add_argument("--scratchpad", default=None, help="v3.14.0 T-120：Scratchpad JSON 文件路径（用于别名映射增强）")
     args = p.parse_args()
 
     segments_path = Path(args.segments)
@@ -307,6 +308,22 @@ def main() -> int:
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # v3.14.0 T-120：读取 Scratchpad（如果提供）
+    scratchpad_alias_count = 0
+    scratchpad_data = None
+    if args.scratchpad:
+        scratchpad_path = Path(args.scratchpad)
+        if scratchpad_path.is_file():
+            try:
+                import json
+                scratchpad_data = json.loads(scratchpad_path.read_text(encoding="utf-8"))
+                scratchpad_chars = scratchpad_data.get("characters", {})
+                scratchpad_alias_count = sum(len(c.get("aliases", [])) for c in scratchpad_chars.values())
+                print(f"📝 Scratchpad 已加载：{len(scratchpad_chars)} 个人物，{scratchpad_alias_count} 个别名")
+            except Exception as e:
+                print(f"⚠️ Scratchpad 加载失败：{e}")
+                scratchpad_data = None
 
     # 加载数据
     segments = load_jsonl(segments_path)
@@ -440,6 +457,8 @@ def main() -> int:
             "name_seed_source": "D19.target + D18.character",
             "pronoun_resolution": "nearest_same_gender",
             "alias_merge_threshold": 0.6,
+            "scratchpad_enabled": bool(args.scratchpad),  # v3.14.0 T-120：是否使用 Scratchpad 增强
+            "scratchpad_aliases_used": scratchpad_alias_count if args.scratchpad else 0,  # v3.14.0 T-120：从 Scratchpad 读取的别名数量
         },
     }
 
