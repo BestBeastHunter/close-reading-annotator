@@ -60,7 +60,7 @@ try:
 except Exception:
     pass
 
-SCHEMA_VERSION = "3.13.2"
+SCHEMA_VERSION = "3.14.1"
 
 # 触发事件识别的 D01 功能值
 TRIGGER_EVENT_D01 = {"激励事件", "高潮", "转折", "下降行动", "结局"}
@@ -119,6 +119,30 @@ class EventRecord:
 
 
 @dataclass
+class ItemRecord:
+    """
+    v3.14.1 T-123 新增：物品记录——摘要级，每物品仅一句话描述。
+    从 D15（意象提取）中抽取重要物品，记录其出现位置和语义演变。
+    """
+    item_id: str                                # 格式：item_001（全书唯一，计数器分配）
+    name: str                                    # 物品名（规范名）
+    aliases: list[str] = field(default_factory=list)  # 别名列表
+    first_segment: str = ""                      # 首现段 ID
+    last_segment: str = ""                       # 最近出现段 ID
+    description: str = ""                        # 一句话描述（≤50字）
+    mention_count: int = 0                       # 出现次数
+    item_type: Optional[str] = None             # 物品类型：自然意象/器物意象/人体意象/色彩意象/抽象意象（来自D15）
+    semantic_evolution: list[str] = field(default_factory=list)  # 语义演变记录（按段顺序，每段一句）
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ItemRecord":
+        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
 class Scratchpad:
     """运行时便签本——每本书一份，Agent 在批注过程中自主维护"""
     doc_id: str
@@ -127,7 +151,9 @@ class Scratchpad:
     last_updated: str = ""
     characters: dict[str, CharacterRecord] = field(default_factory=dict)  # canonical_name → 人物记录
     events: list[EventRecord] = field(default_factory=list)                # 按发现顺序存储
+    items: list[ItemRecord] = field(default_factory=list)                  # v3.14.1 T-123：物品表，按发现顺序存储
     _event_counter: int = 0                                                  # 内部事件 ID 计数器
+    _item_counter: int = 0                                                   # v3.14.1 T-123：内部物品 ID 计数器
 
     def __post_init__(self):
         if not self.last_updated:
@@ -443,6 +469,86 @@ class Scratchpad:
                 return True
         return False
 
+    # ========================================================================
+    # 物品操作（v3.14.1 T-123 新增）
+    # ========================================================================
+
+    def add_item(
+        self,
+        name: str,
+        aliases: Optional[list[str]] = None,
+        first_segment: str = "",
+        description: str = "",
+        segment_id: str = "",
+        item_type: Optional[str] = None,
+        semantic_note: Optional[str] = None,
+    ) -> ItemRecord:
+        """添加或更新物品。如果 name 已存在则追加别名/更新描述/记录语义演变。"""
+        name = name.strip()
+        if not name:
+            raise ValueError("物品名不能为空")
+
+        # 查找已有物品（精确匹配名称或别名）
+        existing = None
+        for item in self.items:
+            if item.name == name or name in item.aliases:
+                existing = item
+                break
+
+        if existing:
+            if aliases:
+                for a in aliases:
+                    if a not in existing.aliases and a != name:
+                        existing.aliases.append(a)
+            if description and len(description) <= 50:
+                existing.description = description
+            if item_type and not existing.item_type:
+                existing.item_type = item_type
+            if segment_id:
+                existing.last_segment = segment_id
+                existing.mention_count += 1
+            if semantic_note and segment_id:
+                note = f"[{segment_id}] {semantic_note}"
+                if note not in existing.semantic_evolution:
+                    existing.semantic_evolution.append(note)
+            self._touch()
+            return existing
+
+        # 新建物品
+        self._item_counter += 1
+        item_id = f"item_{self._item_counter:03d}"
+        item = ItemRecord(
+            item_id=item_id,
+            name=name,
+            aliases=[a for a in (aliases or []) if a != name],
+            first_segment=first_segment or segment_id,
+            last_segment=segment_id or first_segment,
+            description=description[:50] if description else "",
+            mention_count=1 if segment_id else 0,
+            item_type=item_type,
+            semantic_evolution=[f"[{segment_id or first_segment}] {semantic_note}"] if semantic_note else [],
+        )
+        self.items.append(item)
+        self._touch()
+        return item
+
+    def get_item(self, name: str) -> Optional[ItemRecord]:
+        """按名称或别名查找物品。"""
+        for item in self.items:
+            if item.name == name or name in item.aliases:
+                return item
+        return None
+
+    def stats(self) -> dict:
+        """返回统计信息（v3.14.1 新增 items 统计）。"""
+        return {
+            "total_characters": len(self.characters),
+            "total_events": len(self.events),
+            "total_items": len(self.items),  # v3.14.1 T-123
+            "processed_segments": self.processed_segments,
+            "total_segments": self.total_segments,
+        }
+
     def get_open_events(self) -> list[EventRecord]:
         """获取所有未结束的事件。"""
         return [ev for ev in self.events if ev.status == "open"]
@@ -750,7 +856,9 @@ class Scratchpad:
             "last_updated": self.last_updated,
             "characters": {k: v.to_dict() for k, v in self.characters.items()},
             "events": [ev.to_dict() for ev in self.events],
+            "items": [item.to_dict() for item in self.items],  # v3.14.1 T-123
             "_event_counter": self._event_counter,
+            "_item_counter": self._item_counter,  # v3.14.1 T-123
         }
         return json.dumps(data, ensure_ascii=False, indent=2)
 
@@ -765,10 +873,13 @@ class Scratchpad:
             last_updated=data.get("last_updated", ""),
         )
         pad._event_counter = data.get("_event_counter", 0)
+        pad._item_counter = data.get("_item_counter", 0)  # v3.14.1 T-123
         for name, char_data in (data.get("characters") or {}).items():
             pad.characters[name] = CharacterRecord.from_dict(char_data)
         for ev_data in (data.get("events") or []):
             pad.events.append(EventRecord.from_dict(ev_data))
+        for item_data in (data.get("items") or []):  # v3.14.1 T-123
+            pad.items.append(ItemRecord.from_dict(item_data))
         return pad
 
     def save(self, path: str | Path) -> None:

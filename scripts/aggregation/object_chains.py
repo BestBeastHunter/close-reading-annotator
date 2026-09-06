@@ -235,6 +235,7 @@ def main() -> int:
     p.add_argument("--output-dir", required=True, help="输出目录")
     p.add_argument("--min-occurrences", type=int, default=2, help="最小出现次数（默认2）")
     p.add_argument("--similarity-threshold", type=float, default=0.6, help="文本相似度聚类阈值（默认0.6）")
+    p.add_argument("--scratchpad", default=None, help="v3.14.1 T-123：Scratchpad JSON 文件路径（用于物品信息增强）")
     args = p.parse_args()
 
     craft_path = Path(args.craft)
@@ -244,6 +245,20 @@ def main() -> int:
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # v3.14.1 T-123：读取 Scratchpad（如果提供）
+    scratchpad_items = []
+    if args.scratchpad:
+        scratchpad_path = Path(args.scratchpad)
+        if scratchpad_path.is_file():
+            try:
+                import json
+                scratchpad_data = json.loads(scratchpad_path.read_text(encoding="utf-8"))
+                scratchpad_items = scratchpad_data.get("items", [])
+                print(f"📝 Scratchpad 已加载：{len(scratchpad_items)} 个物品")
+            except Exception as e:
+                print(f"⚠️ Scratchpad 加载失败：{e}")
+                scratchpad_items = []
 
     # 加载数据
     craft_rows = load_jsonl(craft_path)
