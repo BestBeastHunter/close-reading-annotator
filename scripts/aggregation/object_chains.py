@@ -253,7 +253,6 @@ def main() -> int:
         scratchpad_path = Path(args.scratchpad)
         if scratchpad_path.is_file():
             try:
-                import json
                 scratchpad_data = json.loads(scratchpad_path.read_text(encoding="utf-8"))
                 scratchpad_items = scratchpad_data.get("items", [])
                 print(f"📝 Scratchpad 已加载：{len(scratchpad_items)} 个物品")
