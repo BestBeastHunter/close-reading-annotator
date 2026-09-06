@@ -37,7 +37,7 @@ except Exception:
 
 # 各维度的合法类型总数（用于多样性评分）
 DIMENSION_TYPES = {
-    "D13_notable_lines": {"type": ["佳句", "警句", "点睛之笔", "意境句", "哲理句", "细节句"]},
+    "D13_golden_lines": {"type": ["佳句", "警句", "点睛之笔", "意境句", "哲理句", "细节句"]},
     "D14_rhetoric": {"type": ["比喻", "拟人", "排比", "反讽", "通感", "夸张", "对比", "象征"]},
     "D15_imagery": {"type": ["自然意象", "器物意象", "人体意象", "色彩意象", "抽象意象"]},
     "D16_diction": {"pos": ["动词", "形容词", "副词", "名词"]},
@@ -46,7 +46,7 @@ DIMENSION_TYPES = {
 
 # 各维度的权重
 WEIGHTS = {
-    "D13_notable_lines": 0.30,
+    "D13_golden_lines": 0.30,
     "D14_rhetoric": 0.20,
     "D15_imagery": 0.20,
     "D16_diction": 0.15,
@@ -56,7 +56,7 @@ WEIGHTS = {
 # 各维度的最大数量参考值（用于数量评分，超过则满分）
 # v3.8.2 调整：降低阈值，使短篇批注的分数更合理
 MAX_COUNTS = {
-    "D13_notable_lines": 3,
+    "D13_golden_lines": 3,
     "D14_rhetoric": 2,
     "D15_imagery": 2,
     "D16_diction": 2,
@@ -220,7 +220,10 @@ def main():
     
     if args.dir and args.doc_id:
         # 批量处理模式
+        # v3.9.0 T-079：先尝试 dir/doc_id/doc_id_craft.jsonl，不存在则降级为 dir/doc_id_craft.jsonl
         craft_path = Path(args.dir) / args.doc_id / f"{args.doc_id}_craft.jsonl"
+        if not craft_path.exists():
+            craft_path = Path(args.dir) / f"{args.doc_id}_craft.jsonl"
         if not craft_path.exists():
             print(f"❌ 文件不存在: {craft_path}")
             sys.exit(1)

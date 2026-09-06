@@ -36,13 +36,13 @@ except Exception:
 REQUIRED_FIELDS = {
     "structure": ["D01", "D04", "D05", "D07", "D08"],
     "interpretation": ["D06_information_control", "D09"],
-    "craft": ["D13_notable_lines", "D14_rhetoric", "D15_imagery", "D16_diction", "D17_syntax"],
+    "craft": ["D13_golden_lines", "D14_rhetoric", "D15_imagery", "D16_diction", "D17_syntax"],
     "emotion": ["primary", "target", "trigger", "expression"],
 }
 
 # 合法枚举值
 VALID_ENUMS = {
-    "D01": {"背景铺垫", "激励事件", "上升行动", "高潮", "下降行动", "结局", "过渡", "转折"},
+    "D01": {"背景铺垫", "激励事件", "上升行动", "高潮", "下降行动", "结局", "过渡", "转折", "复合功能", "无法判断"},
     "D04.core": {"信任", "压抑", "厌恶", "喜悦", "复仇", "嫉妒", "孤独", "屈辱", "希望", "平静", "恐惧", "悬疑", "悲伤", "惊讶", "愤怒", "渴望", "焦虑", "绝望", "羞耻", "释然"},
     "D07.type": {"第一人称", "第二人称", "第三人称有限", "第三人称全知", "多视角", "不可靠叙述者", "客观叙事"},
     "D14.type": {"比喻", "拟人", "排比", "反讽", "通感", "夸张", "对比", "象征"},
@@ -165,7 +165,7 @@ def check_span_accuracy(layer_data: dict, layer_type: str) -> tuple[float, dict]
     
     # craft 层数组的 span
     if layer_type == "craft":
-        for dim in ["D13_notable_lines", "D14_rhetoric", "D15_imagery", "D16_diction", "D17_syntax"]:
+        for dim in ["D13_golden_lines", "D14_rhetoric", "D15_imagery", "D16_diction", "D17_syntax"]:
             items = layer_data.get(dim, []) or []
             for item in items:
                 if item.get("text"):
@@ -384,7 +384,10 @@ def main():
     
     if args.dir and args.doc_id:
         # 批量处理模式
+        # v3.9.0 T-079：先尝试 dir/doc_id/，不存在则降级为 dir/
         ann_dir = Path(args.dir) / args.doc_id
+        if not ann_dir.exists():
+            ann_dir = Path(args.dir)
         layers = ["structure", "interpretation", "craft", "emotion"] if args.all_layers else [args.layer_type]
         
         # 加载所有层的数据（用于跨层一致性）

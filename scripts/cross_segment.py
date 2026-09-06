@@ -305,8 +305,36 @@ def main() -> int:
         },
     }
 
-    # v3.8.7 T-062：增强信号规则（D19.target 情感对象复用 + D15 意象复用）
+    # v3.9.0 T-078：增强信号规则（修复 v3.8.7 的三重逻辑错误）
+    # 1. 正确读取 emotion/craft 数据
+    # 2. 追加到 refs（在 final_refs 去重之前）
+    # 3. 兼容 layers.emotion / layers.craft 格式
     try:
+        emotion_rows = []
+        emotion_path = out_path.parent / f"{args.doc_id}_emotion.jsonl"
+        if emotion_path.is_file():
+            with emotion_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            emotion_rows.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            pass
+
+        craft_rows = []
+        craft_path = out_path.parent / f"{args.doc_id}_craft.jsonl"
+        if craft_path.is_file():
+            with craft_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            craft_rows.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            pass
+
+        # D19.target：同角色在多段作为情感对象出现 → 呼应候选
         if emotion_rows:
             target_segments = {}
             for er in emotion_rows:
@@ -321,16 +349,19 @@ def main() -> int:
                         refs.append({
                             "ref_id": "cf_d19_%04d" % len(refs),
                             "relation_type": "呼应",
+                            "_source": "rule_enhanced",
                             "source": {"segment_id": seg_ids[i], "chapter": None, "anchor_text": "情感对象: %s" % target, "span": None},
                             "target": {"segment_id": seg_ids[i+1], "chapter": None, "anchor_text": "情感对象: %s" % target, "span": None},
                             "confidence": 0.5,
                             "note": "D19.target 情感对象复用（%s 在多段出现），规则候选，建议 LLM 二分类精排" % target,
                         })
+
+        # D15：同意象在多段出现 → 呼应候选（兼容 layers.craft 和顶层 craft）
         if craft_rows:
             imagery_segments = {}
             for cr in craft_rows:
-                craft = cr.get("craft") or {}
-                for item in craft.get("D15_imagery", []) or []:
+                craft_data = (cr.get("layers") or {}).get("craft") or cr.get("craft") or {}
+                for item in craft_data.get("D15_imagery", []) or []:
                     if isinstance(item, dict):
                         text = item.get("text", "")
                         if text and len(text) <= 30:
@@ -341,6 +372,7 @@ def main() -> int:
                         refs.append({
                             "ref_id": "cf_d15_%04d" % len(refs),
                             "relation_type": "呼应",
+                            "_source": "rule_enhanced",
                             "source": {"segment_id": seg_ids[i], "chapter": None, "anchor_text": "意象: %s" % imagery, "span": None},
                             "target": {"segment_id": seg_ids[i+1], "chapter": None, "anchor_text": "意象: %s" % imagery, "span": None},
                             "confidence": 0.5,
