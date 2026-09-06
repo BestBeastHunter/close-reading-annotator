@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-v3.12.0 新增 — 纪传体人物传记聚合（Character Biographies）
+v3.12.0 新增 — 人物传记聚合（Character Biographies）
 
-把"编年体"（按时间顺序的逐段批注）转换为"纪传体"（以人物为中心的传记式分析）。
-类比司马迁写史记时把《春秋》等编年体材料重新组织为"本纪/世家/列传"。
+把按时间顺序的逐段批注重新组织为以人物为中心的传记式分析。
 
 纯规则引擎（不调 LLM），零第三方依赖。所有数据来自现有批注产物和聚合产物。
 
@@ -115,7 +114,7 @@ def extract_timeline_for_character(
     segments: list[dict], structure: dict, interpretation: dict,
     craft: dict, emotion: dict, seg_id_to_idx: dict
 ) -> list[dict]:
-    """提取单个角色的时间线（编年体→纪传体的核心转换）"""
+    """提取单个角色的时间线（段级批注→人物传记的核心转换）"""
     timeline = []
     all_names = [char_name] + aliases
 
@@ -400,7 +399,7 @@ def extract_key_quotes(char_name: str, aliases: list[str], craft: dict, segments
 
 
 def generate_appreciation(char_name: str, biography: dict) -> str:
-    """生成太史公曰式人物评价（规则生成，后续可接入 LLM）"""
+    """生成人物综合评价（规则生成，后续可接入 LLM）"""
     role = biography.get("biography", {}).get("role_in_story", "")
     char_type = biography.get("biography", {}).get("character_type", "")
     arc_type = biography.get("emotional_arc", {}).get("arc_type", "")
@@ -470,7 +469,7 @@ def build_biography(
         },
     }
 
-    # 2. 时间线（核心！编年体→纪传体的转换）
+    # 2. 时间线（核心！段级批注→人物传记的转换）
     timeline = extract_timeline_for_character(
         char_name, aliases, segments, structure, interpretation, craft, emotion, seg_id_to_idx
     )
@@ -516,14 +515,14 @@ def build_biography(
     # 9. 金句
     biography["key_quotes"] = extract_key_quotes(char_name, aliases, craft, segments_by_id)
 
-    # 10. 太史公曰评价
+    # 10. 人物综合评价
     biography["appreciation"] = generate_appreciation(char_name, biography)
 
     return biography
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="v3.12.0 纪传体人物传记聚合")
+    p = argparse.ArgumentParser(description="v3.12.0 人物传记聚合")
     p.add_argument("--segments", required=True)
     p.add_argument("--structure", required=True)
     p.add_argument("--interpretation", default=None)
@@ -576,7 +575,7 @@ def main() -> int:
     main_chars.sort(key=lambda x: -x[3])
     main_chars = main_chars[:args.max_biographies]
 
-    print(f"📚 纪传体人物传记聚合：{len(main_chars)} 个主要人物")
+    print(f"📚 人物传记聚合：{len(main_chars)} 个主要人物")
 
     # 构建每个人物的传记
     biographies = []
@@ -601,7 +600,7 @@ def main() -> int:
         "biographies": biographies,
         "_metadata": {
             "method": "rule_based_v3_12",
-            "note": "编年体→纪传体转换：把按时间顺序的逐段批注重新组织为以人物为中心的传记式分析",
+            "note": "段级批注→人物传记转换：把按时间顺序的逐段批注重新组织为以人物为中心的传记式分析",
             "main_character_threshold": MAIN_CHARACTER_THRESHOLD,
             "max_biographies": args.max_biographies,
         },
@@ -612,7 +611,7 @@ def main() -> int:
     out_path = out_dir / f"{args.doc_id}_character_biographies.json"
     out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(f"\n✅ 纪传体人物传记聚合完成：{len(biographies)} 个人物传记")
+    print(f"\n✅ 人物传记聚合完成：{len(biographies)} 个人物传记")
     for bio in biographies[:5]:
         print(f"   - {bio['name']}：{bio['biography']['total_segments']}段，"
               f"{len(bio['timeline'])}个时间线事件，{len(bio['key_moments'])}个关键时刻，"
