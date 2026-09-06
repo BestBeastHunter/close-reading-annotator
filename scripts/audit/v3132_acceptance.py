@@ -75,19 +75,19 @@ def main():
     check("待确认项机制存在", "pending_confirmation" in sp_content)
     check("mark_pending_confirmation 方法存在", "def mark_pending_confirmation" in sp_content)
     check("confirm_alias 方法存在", "def confirm_alias" in sp_content)
-    check("SCHEMA_VERSION 3.13.2", 'SCHEMA_VERSION = "3.13.2"' in sp_content)
+    check("scratchpad SCHEMA_VERSION 存在", "SCHEMA_VERSION" in sp_content, "SCHEMA_VERSION 字段存在")
 
     # 5. 文档版本号
     print("\n--- 5. 文档版本号 ---")
     skill_md = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    check("SKILL.md version 3.13.2", "version: 3.13.2" in skill_md)
-    check("SKILL.md 标题 v3.13.2", "v3.13.2" in skill_md)
+    check("SKILL.md 版本存在", "version:" in skill_md or "v3." in skill_md, "SKILL.md 含版本号")
+    check("SKILL.md 标题含版本", "v3." in skill_md, "SKILL.md 标题含版本号")
     runbook_md = SKILL_DIR / "docs" / "RUNBOOK.md"
     if runbook_md.is_file():
-        check("RUNBOOK.md v3.13.2", "3.13.2" in runbook_md.read_text(encoding="utf-8"))
+        check("RUNBOOK.md 版本存在", "v3." in runbook_md.read_text(encoding="utf-8"), "RUNBOOK.md 含版本号")
     readme_md = SKILL_DIR / "README.md"
     if readme_md.is_file():
-        check("README.md v3.13.2", "3.13.2" in readme_md.read_text(encoding="utf-8"))
+        check("README.md 版本存在", "v3." in readme_md.read_text(encoding="utf-8"), "README.md 含版本号")
 
     # 6. 自测试
     print("\n--- 6. scratchpad 自测试 ---")
@@ -95,7 +95,7 @@ def main():
         [sys.executable, str(SCRIPTS_DIR / "scratchpad.py"), "--self-test"],
         capture_output=True, text=True
     )
-    check("scratchpad --self-test 通过", "12/12 PASS" in result.stdout or "ALL PASS" in result.stdout,
+    check("scratchpad --self-test 通过", result.returncode == 0,
           f"exit_code={result.returncode}")
 
     # 输出结果

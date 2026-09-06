@@ -316,7 +316,6 @@ def main() -> int:
         scratchpad_path = Path(args.scratchpad)
         if scratchpad_path.is_file():
             try:
-                import json
                 scratchpad_data = json.loads(scratchpad_path.read_text(encoding="utf-8"))
                 scratchpad_chars = scratchpad_data.get("characters", {})
                 scratchpad_alias_count = sum(len(c.get("aliases", [])) for c in scratchpad_chars.values())
@@ -462,10 +461,12 @@ def main() -> int:
         },
     }
 
-    # 写入文件
+    # 写入文件（原子写：先写临时文件再替换，避免崩溃留下空文件）
     out_path = out_dir / f"{args.doc_id}_entity_graph.json"
-    with out_path.open("w", encoding="utf-8") as f:
+    tmp_path = out_path.with_suffix(".json.tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
         json.dump(entity_graph, f, ensure_ascii=False, indent=2)
+    tmp_path.replace(out_path)
 
     print(f"\n✅ entity_graph.json 已写入: {out_path}")
     print(f"   实体数: {len(entities)}")

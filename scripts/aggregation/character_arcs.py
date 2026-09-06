@@ -372,7 +372,7 @@ def infer_character_traits(character_name: str, emotion_rows: list, craft_rows: 
 # v3.13.1 新增：人物分析增强函数（T-112）
 # ============================================================================
 
-def compute_complexity_score(traits: list, variance: float, relationship_count: int) -> dict:
+def compute_complexity_score(traits: list, variance: float, relationship_count: int, total_segments: int = 0) -> dict:
     """
     计算人物复杂度评分（complexity_score）。
     complexity_score = trait_count(0.4) + emotion_variance(0.3) + relationship_count(0.3)
@@ -402,9 +402,17 @@ def compute_complexity_score(traits: list, variance: float, relationship_count: 
     else:
         flat_round = "扁平"
 
+    # 动态/静态判定（v3.14.1 审计修复④）：
+    # 动态人物：情感方差 > 0.3（有明显情感变化）且出场段数 > 10（有足够发展空间）
+    if variance > 0.3 and total_segments > 10:
+        dynamic_static = "动态"
+    else:
+        dynamic_static = "静态"
+
     return {
         "complexity_score": complexity_score,
         "flat_round": flat_round,
+        "dynamic_static": dynamic_static,
         "breakdown": {
             "trait_count_norm": round(trait_count_norm, 3),
             "emotion_variance_norm": round(variance_norm, 3),
@@ -815,6 +823,7 @@ def main() -> int:
             "character_type": compute_complexity_score(
                 infer_character_traits(canonical_name, emotion_rows, craft_rows, structure_rows, segments),
                 arc_classification.get("variance", 0),
+                len(entity_segs),
                 len(entity_segs),
             ),
             "character_depth": compute_character_depth(

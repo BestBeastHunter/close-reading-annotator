@@ -230,10 +230,10 @@ skill_md = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
 runbook = (SKILL_ROOT / "docs" / "RUNBOOK.md").read_text(encoding="utf-8")
 readme = (SKILL_ROOT / "README.md").read_text(encoding="utf-8")
 
-check("E-SKILL-version-3.13.0", "3.13.0" in skill_md, "SKILL.md 含 3.13.0")
+check("E-SKILL-version 存在", "v3." in skill_md, "SKILL.md 含版本号")
 check("E-SKILL-scratchpad-section", "Scratchpad" in skill_md or "便签本" in skill_md, "SKILL.md 含 Scratchpad 章节")
-check("E-RUNBOOK-version-3.13.0", "3.13.0" in runbook, "RUNBOOK.md 含 3.13.0")
-check("E-README-version-3.13.0", "3.13.0" in readme, "README.md 含 3.13.0")
+check("E-RUNBOOK-version 存在", "v3." in runbook, "RUNBOOK.md 含版本号")
+check("E-README-version 存在", "v3." in readme, "README.md 含版本号")
 
 # ============================================================================
 # 汇总

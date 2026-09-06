@@ -236,6 +236,7 @@ def main() -> int:
     p.add_argument("--min-occurrences", type=int, default=2, help="最小出现次数（默认2）")
     p.add_argument("--similarity-threshold", type=float, default=0.6, help="文本相似度聚类阈值（默认0.6）")
     p.add_argument("--scratchpad", default=None, help="v3.14.1 T-123：Scratchpad JSON 文件路径（用于物品信息增强）")
+    p.add_argument("--include-all-types", action="store_true", default=False, help="v3.14.1 T-123：包含所有意象类型（默认仅器物/人体/色彩，自然/抽象意象排除）")
     args = p.parse_args()
 
     craft_path = Path(args.craft)

@@ -152,6 +152,7 @@ class Scratchpad:
     characters: dict[str, CharacterRecord] = field(default_factory=dict)  # canonical_name → 人物记录
     events: list[EventRecord] = field(default_factory=list)                # 按发现顺序存储
     items: list[ItemRecord] = field(default_factory=list)                  # v3.14.1 T-123：物品表，按发现顺序存储
+    enable_items: bool = False                                               # v3.14.1 审计修复⑤：物品表默认关闭，需显式启用
     _event_counter: int = 0                                                  # 内部事件 ID 计数器
     _item_counter: int = 0                                                   # v3.14.1 T-123：内部物品 ID 计数器
 
@@ -1127,6 +1128,7 @@ def main():
     parser.add_argument("--save", help="保存到 JSON 文件")
     parser.add_argument("--summary", action="store_true", help="打印摘要")
     parser.add_argument("--stats", action="store_true", help="打印统计信息")
+    parser.add_argument("--enable-items", action="store_true", default=False, help="启用物品表（默认关闭）")  # v3.14.1 审计修复⑤
     args = parser.parse_args()
 
     if args.self_test:
@@ -1136,7 +1138,7 @@ def main():
     if args.load:
         pad = Scratchpad.load(args.load)
     elif args.doc_id:
-        pad = Scratchpad(doc_id=args.doc_id)
+        pad = Scratchpad(doc_id=args.doc_id, enable_items=args.enable_items)
 
     if pad is None:
         parser.print_help()
