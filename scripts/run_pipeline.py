@@ -117,6 +117,12 @@ def main() -> int:
                    help="Phase 5 报告格式（默认 html）")
     p.add_argument("--force", action="store_true", help="强制重跑已完成阶段/片段")
     p.add_argument("--skip-annotate", action="store_true", help="跳过 Phase 2（骨架模式，只跑跨段/合并/报告）")
+    p.add_argument("--aggregation", dest="aggregation", action="store_true", default=True,
+                       help="Phase 4.5 聚合分析（默认开启），v3.10.0 T-089")
+    p.add_argument("--no-aggregation", dest="aggregation", action="store_false",
+                       help="关闭 Phase 4.5 聚合分析")
+    p.add_argument("--aggregation-level", choices=["core", "full"], default="full",
+                       help="聚合级别：core=核心5个脚本，full=全部10个脚本（默认full）")
     p.add_argument("--calibrate", dest="calibrate", action="store_true", default=True, help="Phase 6 后处理校准（默认开启）：quality_score + confidence 重算 + DLUT 交叉验证")
     p.add_argument("--no-calibrate", dest="calibrate", action="store_false", help="关闭 Phase 6 后处理校准")
     p.add_argument("--cleanup", action="store_true", default=True, help="完成后自动清理 _batch_*.jsonl 临时文件（默认开启），v3.8.9 T-076")

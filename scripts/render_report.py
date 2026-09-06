@@ -46,6 +46,128 @@ def _load_jsonl(p: Path) -> list[dict]:
     return out
 
 
+
+
+def _load_aggregation(out_dir: Path, doc_id: str) -> dict:
+    """v3.10.0 T-090：读取聚合层产物，缺失则返回空 dict（不阻塞报告生成）"""
+    agg = {}
+    agg_dir = out_dir / "aggregation"
+    if not agg_dir.exists():
+        return agg
+    # 核心聚合
+    for key, fname in [
+        ("story_type", f"{doc_id}_story_metadata.json"),
+        ("narrative_structure", f"{doc_id}_narrative_structure.json"),
+        ("character_arcs", f"{doc_id}_character_arcs.json"),
+        ("entity_graph", f"{doc_id}_entity_graph.json"),
+        ("scene_graph", f"{doc_id}_scene_graph.json"),
+    ]:
+        fpath = agg_dir / fname
+        if fpath.exists():
+            try:
+                agg[key] = json.loads(fpath.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    # 高级聚合（统计）
+    for key, fname in [
+        ("causal_graph", f"{doc_id}_causal_graph.json"),
+        ("object_chains", f"{doc_id}_object_chains.json"),
+        ("writing_techniques", f"{doc_id}_writing_techniques.json"),
+    ]:
+        fpath = agg_dir / fname
+        if fpath.exists():
+            try:
+                agg[key] = json.loads(fpath.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    return agg
+
+
+def _render_aggregation_html(agg: dict, doc_id: str) -> str:
+    """v3.10.0 T-091~T-094：渲染聚合层 HTML 章节"""
+    if not agg:
+        return '<div class="section"><h2>📊 聚合分析</h2><p style="color:#888">未运行聚合分析（Phase 4.5），如需全局叙事分析请重新运行流水线。</p></div>'
+    parts = ['<div class="section"><h2>📊 聚合分析（全局叙事）</h2>']
+
+    # T-091：故事概览
+    if "story_type" in agg:
+        st = agg["story_type"].get("story_metadata", {})
+        summary = agg["story_type"].get("summary", {})
+        parts.append('<h3>🎭 故事概览</h3>')
+        parts.append('<table border="1" cellpadding="6" style="border-collapse:collapse">')
+        genre = st.get("genre", {})
+        parts.append(f'<tr><td><b>题材类型</b></td><td>{html.escape(str(genre.get("primary", "未知")))}</td></tr>')
+        ns = st.get("narrative_style", {})
+        parts.append(f'<tr><td><b>叙事风格</b></td><td>{html.escape(str(ns.get("type", "未知")))}</td></tr>')
+        ts = st.get("time_structure", {})
+        parts.append(f'<tr><td><b>时间结构</b></td><td>{html.escape(str(ts.get("type", "未知")))}</td></tr>')
+        ea = st.get("emotion_arc", {})
+        parts.append(f'<tr><td><b>情感曲线</b></td><td>{html.escape(str(ea.get("pattern", "未知")))}</td></tr>')
+        pace = st.get("pace", {})
+        parts.append(f'<tr><td><b>叙事节奏</b></td><td>{html.escape(str(pace.get("type", "未知")))}</td></tr>')
+        rexp = st.get("reader_experience", {})
+        parts.append(f'<tr><td><b>阅读体验</b></td><td>{html.escape(str(rexp.get("primary", "未知")))}</td></tr>')
+        one_line = summary.get("one_line", "")
+        if one_line:
+            parts.append(f'<tr><td><b>一句话摘要</b></td><td>{html.escape(str(one_line))}</td></tr>')
+        parts.append('</table>')
+
+    # T-092：叙事结构
+    if "narrative_structure" in agg:
+        ns_data = agg["narrative_structure"]
+        freytag = ns_data.get("freytag_pyramid", {})
+        focal = ns_data.get("genette_focalization", {})
+        timeline = ns_data.get("narrative_timeline", {})
+        parts.append('<h3>🏗️ 叙事结构</h3>')
+        parts.append('<table border="1" cellpadding="6" style="border-collapse:collapse">')
+        health = freytag.get("structure_health", "未知")
+        health_color = "#2ecc71" if health == "healthy" else "#e74c3c"
+        parts.append(f'<tr><td><b>结构健康度</b></td><td style="color:{health_color}"><b>{html.escape(str(health))}</b></td></tr>')
+        ktp = freytag.get("key_turning_points", {})
+        parts.append(f'<tr><td><b>激励事件</b></td><td>{html.escape(str(ktp.get("inciting_incident_segment", "未定位")))}</td></tr>')
+        parts.append(f'<tr><td><b>高潮</b></td><td>{html.escape(str(ktp.get("climax_segment", "未定位")))}</td></tr>')
+        parts.append(f'<tr><td><b>结局</b></td><td>{html.escape(str(ktp.get("resolution_segment", "未定位")))}</td></tr>')
+        parts.append(f'<tr><td><b>主导聚焦</b></td><td>{html.escape(str(focal.get("dominant_focalization", "未知")))}</td></tr>')
+        parts.append(f'<tr><td><b>聚焦复杂度</b></td><td>{html.escape(str(focal.get("complexity", "未知")))}</td></tr>')
+        parts.append(f'<tr><td><b>时间结构</b></td><td>{html.escape(str(timeline.get("time_structure", "未知")))}</td></tr>')
+        parts.append('</table>')
+
+    # T-093：角色弧线
+    if "character_arcs" in agg:
+        ca = agg["character_arcs"]
+        arcs = ca.get("character_arcs", [])
+        parts.append(f'<h3>👥 角色弧线（{len(arcs)} 个角色）</h3>')
+        if arcs:
+            parts.append('<table border="1" cellpadding="6" style="border-collapse:collapse">')
+            parts.append('<tr><th>角色</th><th>弧线类型</th><th>覆盖率</th><th>出场段数</th></tr>')
+            for c in arcs[:10]:  # 最多显示10个
+                name = c.get("canonical_name", "未知")
+                arc_type = c.get("arc_classification", {}).get("arc_type", "未知")
+                coverage = c.get("coverage_rate", 0)
+                seg_count = c.get("total_segments_present", 0)
+                parts.append(f'<tr><td>{html.escape(str(name))}</td><td>{html.escape(str(arc_type))}</td><td>{coverage:.1%}</td><td>{seg_count}</td></tr>')
+            parts.append('</table>')
+            if len(arcs) > 10:
+                parts.append(f'<p style="color:#888">... 还有 {len(arcs)-10} 个角色，详见 character_arcs.json</p>')
+
+    # T-094：全局统计
+    parts.append('<h3>📈 全局统计</h3>')
+    parts.append('<table border="1" cellpadding="6" style="border-collapse:collapse">')
+    if "entity_graph" in agg:
+        parts.append(f'<tr><td>实体总数</td><td>{agg["entity_graph"].get("total_entities", 0)}</td></tr>')
+    if "scene_graph" in agg:
+        parts.append(f'<tr><td>场景总数</td><td>{agg["scene_graph"].get("total_scenes", 0)}</td></tr>')
+    if "causal_graph" in agg:
+        stats = agg["causal_graph"].get("statistics", {})
+        parts.append(f'<tr><td>因果边数</td><td>{stats.get("total_edges", 0)}</td></tr>')
+    if "object_chains" in agg:
+        stats = agg["object_chains"].get("statistics", {})
+        parts.append(f'<tr><td>物件链数</td><td>{stats.get("total_chains", 0)}</td></tr>')
+    parts.append('</table>')
+
+    parts.append('</div>')
+    return "\n".join(parts)
+
 def _emotion_core(row: dict | None) -> str:
     if not row:
         return ""
@@ -123,7 +245,7 @@ def _emotion_summaries(emotions: dict) -> list[dict]:
     return rows
 
 
-def render_html(doc_id: str, out_path: Path, segs: list[dict], structs: dict, interps: dict, craft: dict, refs: list[dict], ckpt: dict | None, emotions: dict | None = None) -> None:
+def render_html(doc_id: str, out_path: Path, segs: list[dict], structs: dict, interps: dict, craft: dict, refs: list[dict], ckpt: dict | None, emotions: dict | None = None, aggregation: dict = None) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     parts: list[str] = []
     parts.append("<!doctype html><html><head><meta charset='utf-8'>")
@@ -139,6 +261,9 @@ def render_html(doc_id: str, out_path: Path, segs: list[dict], structs: dict, in
                  ".seg-card{border:1px solid #ddd;border-radius:6px;padding:14px;margin:12px 0;background:#fafafa;}"
                  "</style></head><body>")
     parts.append(f"<h1>精读批注报告 · {html.escape(doc_id)}</h1>")
+    # v3.10.0 T-090~T-094：聚合分析章节
+    aggregation_html = _render_aggregation_html(aggregation, doc_id)
+    parts.append(aggregation_html)
     parts.append(f"<p class='muted'>生成时间：{now}</p>")
 
     # 概览
@@ -424,9 +549,12 @@ def main() -> int:
                         pass
     ckpt = load_checkpoint(doc_id, base_dir)
 
+    # v3.10.0 T-090：读取聚合层数据
+    aggregation = _load_aggregation(base_dir, doc_id)
+
     if args.format == "html":
         out_path = Path(args.output) if args.output else (cwd / f"{doc_id}_report.html")
-        render_html(doc_id, out_path, segs, structs, interps, craft, cross_refs, ckpt, emotions)
+        render_html(doc_id, out_path, segs, structs, interps, craft, cross_refs, ckpt, emotions, aggregation)
     else:
         out_path = Path(args.output) if args.output else (cwd / f"{doc_id}_report.md")
         render_md(doc_id, out_path, segs, structs, interps, craft, cross_refs, ckpt, emotions)
