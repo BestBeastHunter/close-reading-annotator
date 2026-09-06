@@ -464,8 +464,10 @@ def build_biography(
             "last_appearance": last_seg,
             "total_segments": total_segments,
             "role_in_story": role_in_story,
-            "character_type": "圆形" if total_segments >= len(segments) * 0.2 else "扁平",
-            "dynamic_static": "动态" if total_segments >= len(segments) * 0.15 else "静态",
+            # v3.13.1 T-113：character_type 从 character_arcs 读取（含 complexity_score）
+            "character_type": None,  # 占位，后续从 character_arcs 填充
+            "complexity_score": None,
+            "dynamic_static": None,
         },
     }
 
@@ -499,6 +501,54 @@ def build_biography(
                 break
     if "emotional_arc" not in biography:
         biography["emotional_arc"] = {}
+
+    # 6.5 v3.13.1 T-113 新增：从 character_arcs 集成人物分析增强字段
+    if character_arcs:
+        for arc in character_arcs.get("character_arcs", []):
+            if arc.get("canonical_name") == char_name or char_id in str(arc.get("entity_id", "")):
+                # character_type（含 complexity_score）
+                ct = arc.get("character_type", {})
+                if ct:
+                    biography["biography"]["character_type"] = ct.get("flat_round")
+                    biography["biography"]["complexity_score"] = ct.get("complexity_score")
+                # dynamic_static（从 agency_trend 推断）
+                agency = arc.get("agency_curve", {})
+                if agency:
+                    biography["biography"]["dynamic_static"] = "动态" if agency.get("agency_trend") in ("上升", "下降") else "静态"
+                # character_depth
+                biography["character_depth"] = arc.get("character_depth", {})
+                # agency_curve
+                biography["agency_curve"] = {
+                    "agency_distribution": agency.get("agency_distribution", {}),
+                    "agency_trend": agency.get("agency_trend", ""),
+                    "total_points": agency.get("total_points", 0),
+                }
+                # appearance_stats（从 density_distribution 来）
+                dd = arc.get("density_distribution", {})
+                biography["appearance_stats"] = {
+                    "segment_count": total_segments,
+                    "total_segments": len(segments),
+                    "presence_ratio": round(total_segments / len(segments), 2) if segments else 0,
+                    "peak_interval": dd.get("peak_interval"),
+                    "peak_density": dd.get("peak_density", 0),
+                    "density_distribution": dd.get("intervals", []),
+                }
+                # dialogue_dominance
+                biography["dialogue_dominance"] = arc.get("dialogue_dominance", {})
+                break
+    # 降级：如果 character_arcs 没有数据，用简单判断
+    if biography["biography"]["character_type"] is None:
+        biography["biography"]["character_type"] = "圆形" if total_segments >= len(segments) * 0.2 else "扁平"
+    if biography["biography"]["dynamic_static"] is None:
+        biography["biography"]["dynamic_static"] = "动态" if total_segments >= len(segments) * 0.15 else "静态"
+    if "character_depth" not in biography:
+        biography["character_depth"] = {}
+    if "agency_curve" not in biography:
+        biography["agency_curve"] = {}
+    if "appearance_stats" not in biography:
+        biography["appearance_stats"] = {"segment_count": total_segments, "total_segments": len(segments)}
+    if "dialogue_dominance" not in biography:
+        biography["dialogue_dominance"] = {}
 
     # 7. 性格特征（来自 character_arcs 的 traits_aggregated）
     if character_arcs:

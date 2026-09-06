@@ -9,11 +9,22 @@ v2.9 Step 3 — 角色弧线重建（Character Arcs）
   3. 输出每个角色的情感状态轨迹（时间→情绪→强度→极性）
   4. 判定弧线类型（上升/下降/平稳/波动/悲剧/喜剧）
 
+v3.11.0 扩展（T-096~T-097）：性格特征聚合（traits_aggregated）
+
+v3.13.1 增强（T-112，ADR-029）：
+- 新增 character_type：扁平/圆形/尖形 + 静态/动态 + complexity_score 复杂度评分
+  complexity_score = trait_count(0.4) + emotion_variance(0.3) + relationship_count(0.3)
+- 新增 character_depth：不可还原特质 + 文本空白数
+- 新增 agency_curve：能动性曲线（主动/被动/观察者，基于 D01+D18 推断）
+- 新增 density_distribution：出现密度分布（按全书5等分区间统计）
+- 新增 dialogue_dominance：对话主导权（发起对话占比 + 言说动词分布）
+
 用法：
   python scripts/aggregation/character_arcs.py \
     --segments outputs/annotations/moon_sixpence_zh/moon_sixpence_zh_segments.jsonl \
     --structure outputs/annotations/moon_sixpence_zh/moon_sixpence_zh_structure.jsonl \
     --emotion outputs/annotations/moon_sixpence_zh/moon_sixpence_zh_emotion.jsonl \
+    --craft outputs/annotations/moon_sixpence_zh/moon_sixpence_zh_craft.jsonl \
     --entity-graph outputs/annotations/moon_sixpence_zh/aggregation/moon_sixpence_zh_entity_graph.json \
     --doc-id moon_sixpence_zh \
     --output-dir outputs/annotations/moon_sixpence_zh/aggregation
@@ -32,7 +43,7 @@ try:
 except Exception:
     pass
 
-SCHEMA_VERSION = "3.0.0"
+SCHEMA_VERSION = "3.4.0"
 
 # 情绪极性映射
 POLARITY_SCORE = {
@@ -41,6 +52,17 @@ POLARITY_SCORE = {
     "neutral": 0.0,
     "mixed": 0.0,
 }
+
+# v3.13.1 新增：复杂度评分权重
+COMPLEXITY_WEIGHTS = {
+    "trait_count": 0.4,       # 性格特征数量
+    "emotion_variance": 0.3,  # 情感弧线方差
+    "relationship_count": 0.3,  # 关系数量（暂用出场段数代理）
+}
+FLAT_ROUND_THRESHOLD = 0.6    # complexity_score >= 此值为圆形人物
+DYNAMIC_TREND_THRESHOLD = 0.3  # 情感趋势绝对值 >= 此值为动态人物
+ACTIVE_D01 = {"激励事件", "高潮", "转折", "结局", "上升行动", "下降行动"}
+PASSIVE_D01 = {"背景铺垫", "过渡"}
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -341,11 +363,236 @@ def infer_character_traits(character_name: str, emotion_rows: list, craft_rows: 
             })
     return result
 
+
+# ============================================================================
+# v3.13.1 新增：人物分析增强函数（T-112）
+# ============================================================================
+
+def compute_complexity_score(traits: list, variance: float, relationship_count: int) -> dict:
+    """
+    计算人物复杂度评分（complexity_score）。
+    complexity_score = trait_count(0.4) + emotion_variance(0.3) + relationship_count(0.3)
+    返回 {complexity_score, flat_round, dynamic_static, breakdown}
+    """
+    # trait_count：性格特征数量归一化（最多5个，超过按1.0）
+    trait_count_norm = min(len(traits) / 3.0, 1.0) if traits else 0.0
+
+    # emotion_variance：情感弧线方差归一化（方差>1.0按1.0）
+    variance_norm = min(variance / 0.5, 1.0) if variance else 0.0
+
+    # relationship_count：关系数量归一化（暂用出场段数代理，超过20段按1.0）
+    relationship_norm = min(relationship_count / 20.0, 1.0) if relationship_count else 0.0
+
+    complexity_score = round(
+        trait_count_norm * COMPLEXITY_WEIGHTS["trait_count"] +
+        variance_norm * COMPLEXITY_WEIGHTS["emotion_variance"] +
+        relationship_norm * COMPLEXITY_WEIGHTS["relationship_count"],
+        3,
+    )
+
+    # 扁平/圆形判定
+    if complexity_score >= FLAT_ROUND_THRESHOLD:
+        flat_round = "圆形"
+    elif complexity_score >= 0.3:
+        flat_round = "尖形"
+    else:
+        flat_round = "扁平"
+
+    return {
+        "complexity_score": complexity_score,
+        "flat_round": flat_round,
+        "breakdown": {
+            "trait_count_norm": round(trait_count_norm, 3),
+            "emotion_variance_norm": round(variance_norm, 3),
+            "relationship_count_norm": round(relationship_norm, 3),
+        },
+    }
+
+
+def compute_character_depth(traits: list, coverage_rate: float, total_segments: int) -> dict:
+    """
+    计算人物厚度（character_depth）。
+    包含：不可还原特质（高置信度性格特征）+ 文本空白数（出场覆盖率低则空白多）
+    """
+    # 不可还原特质：置信度 >= 0.7 的性格特征
+    irreducible_traits = [
+        t["trait"] for t in traits
+        if isinstance(t, dict) and t.get("confidence", 0) >= 0.7
+    ]
+
+    # 文本空白数估算：出场覆盖率 < 0.5 时，每低 0.1 算 1 个空白
+    if coverage_rate < 0.5:
+        gaps_count = int((0.5 - coverage_rate) * 10) + 1
+    else:
+        gaps_count = 0
+
+    return {
+        "irreducible_traits": irreducible_traits[:5],  # 最多保留5个
+        "gaps_count": gaps_count,
+        "depth_note": f"出场覆盖率 {coverage_rate*100:.0f}%，"
+                       f"{'存在文本空白，建议补充背景信息' if gaps_count > 0 else '出场充分，文本空白较少'}",
+    }
+
+
+def compute_agency_curve(entity_segs: list, structure_data: dict, craft_rows: list,
+                          canonical_name: str) -> dict:
+    """
+    计算能动性曲线（agency_curve）。
+    基于 D01 功能 + D18 对话推断主动/被动/观察者。
+    返回 {agency_distribution, agency_curve_points, agency_trend}
+    """
+    agency_points = []
+    active_count = 0
+    passive_count = 0
+    observer_count = 0
+
+    # 构建 D18 人物对话索引（该人物在哪些段有对话）
+    dialogue_segs = set()
+    for row in craft_rows:
+        craft = row.get("layers", {}).get("craft") or row.get("craft") or {}
+        d18 = craft.get("D18_character_voice", []) or []
+        seg_id = row.get("segment_id", "")
+        for item in d18:
+            if isinstance(item, dict):
+                char = item.get("character", "")
+                if char and (char in canonical_name or canonical_name in char):
+                    dialogue_segs.add(seg_id)
+
+    for seg_id in entity_segs:
+        seg_idx = get_segment_index(seg_id)
+        sd = structure_data.get(seg_id, {})
+        d01 = sd.get("d01")
+
+        # 能动性判定
+        if d01 in ACTIVE_D01 or seg_id in dialogue_segs:
+            agency = "主动"
+            active_count += 1
+        elif d01 in PASSIVE_D01:
+            agency = "被动"
+            passive_count += 1
+        else:
+            agency = "观察者"
+            observer_count += 1
+
+        agency_points.append({
+            "segment_id": seg_id,
+            "segment_index": seg_idx,
+            "agency_level": agency,
+            "d01_function": d01,
+            "has_dialogue": seg_id in dialogue_segs,
+        })
+
+    total = len(agency_points) if agency_points else 1
+    agency_distribution = {
+        "主动": round(active_count / total, 2),
+        "被动": round(passive_count / total, 2),
+        "观察者": round(observer_count / total, 2),
+    }
+
+    # 能动性趋势：前半段 vs 后半段的主动占比变化
+    if len(agency_points) >= 4:
+        mid = len(agency_points) // 2
+        first_half_active = sum(1 for p in agency_points[:mid] if p["agency_level"] == "主动") / mid
+        second_half_active = sum(1 for p in agency_points[mid:] if p["agency_level"] == "主动") / (len(agency_points) - mid)
+        agency_trend = "上升" if second_half_active > first_half_active + 0.1 else (
+            "下降" if second_half_active < first_half_active - 0.1 else "平稳"
+        )
+    else:
+        agency_trend = "数据不足"
+
+    return {
+        "agency_distribution": agency_distribution,
+        "agency_curve_points": agency_points[:20],  # 最多保留20个点
+        "agency_trend": agency_trend,
+        "total_points": len(agency_points),
+    }
+
+
+def compute_density_distribution(entity_segs: list, total_segments: int) -> dict:
+    """
+    计算出现密度分布（density_distribution）。
+    按全书5等分区间统计出场段数。
+    """
+    if total_segments <= 0:
+        return {"intervals": [], "note": "无总段数数据"}
+
+    interval_size = max(total_segments // 5, 1)
+    intervals = []
+    seg_indices = [get_segment_index(s) for s in entity_segs]
+
+    for i in range(5):
+        start = i * interval_size + 1
+        end = min((i + 1) * interval_size, total_segments)
+        count = sum(1 for idx in seg_indices if start <= idx <= end)
+        density = round(count / max(end - start + 1, 1), 2)
+        intervals.append({
+            "interval": f"{start}-{end}",
+            "segment_count": count,
+            "density": density,
+        })
+
+    # 找出密度最高的区间
+    peak_interval = max(intervals, key=lambda x: x["density"]) if intervals else None
+
+    return {
+        "intervals": intervals,
+        "peak_interval": peak_interval["interval"] if peak_interval else None,
+        "peak_density": peak_interval["density"] if peak_interval else 0,
+        "note": f"全书{total_segments}段，分5个等长区间统计出场密度",
+    }
+
+
+def compute_dialogue_dominance(craft_rows: list, canonical_name: str) -> dict:
+    """
+    计算对话主导权（dialogue_dominance）。
+    包含：发起对话占比 + 言说动词分布 + 平均对话长度。
+    """
+    total_dialogues = 0
+    char_dialogues = 0
+    speech_verbs = {}
+    dialogue_lengths = []
+
+    for row in craft_rows:
+        craft = row.get("layers", {}).get("craft") or row.get("craft") or {}
+        d18 = craft.get("D18_character_voice", []) or []
+        for item in d18:
+            if not isinstance(item, dict):
+                continue
+            total_dialogues += 1
+            char = item.get("character", "")
+            if char and (char in canonical_name or canonical_name in char):
+                char_dialogues += 1
+                # 言说动词分布
+                svd = item.get("speech_verb_distribution", {})
+                if isinstance(svd, dict) and svd.get("dominant"):
+                    verb = svd["dominant"]
+                    speech_verbs[verb] = speech_verbs.get(verb, 0) + 1
+                # 平均对话长度
+                dlen = item.get("dialogue_length_avg")
+                if dlen and isinstance(dlen, (int, float)):
+                    dialogue_lengths.append(dlen)
+
+    dominance_ratio = round(char_dialogues / total_dialogues, 2) if total_dialogues > 0 else 0.0
+    avg_dialogue_length = round(sum(dialogue_lengths) / len(dialogue_lengths), 1) if dialogue_lengths else None
+
+    return {
+        "dominance_ratio": dominance_ratio,
+        "char_dialogue_count": char_dialogues,
+        "total_dialogue_count": total_dialogues,
+        "speech_verb_distribution": dict(sorted(speech_verbs.items(), key=lambda x: -x[1])[:5]),
+        "avg_dialogue_length": avg_dialogue_length,
+        "dominance_level": "主导" if dominance_ratio >= 0.4 else (
+            "重要" if dominance_ratio >= 0.2 else "次要" if dominance_ratio > 0 else "无对话"
+        ),
+    }
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="v2.9 Step 3 — 角色弧线重建（Character Arcs）")
     p.add_argument("--segments", required=True, help="segments.jsonl 路径")
     p.add_argument("--structure", required=True, help="structure.jsonl 路径")
     p.add_argument("--emotion", required=True, help="emotion.jsonl 路径")
+    p.add_argument("--craft", default=None, help="craft.jsonl 路径（v3.13.1 可选，用于agency_curve和dialogue_dominance）")
     p.add_argument("--entity-graph", required=True, help="entity_graph.json 路径")
     p.add_argument("--doc-id", required=True, help="文档 ID")
     p.add_argument("--output-dir", required=True, help="输出目录")
@@ -354,10 +601,14 @@ def main() -> int:
     segments_path = Path(args.segments)
     structure_path = Path(args.structure)
     emotion_path = Path(args.emotion)
+    craft_path = Path(args.craft) if args.craft else None
     entity_graph_path = Path(args.entity_graph)
 
-    for path, name in [(segments_path, "segments"), (structure_path, "structure"),
-                        (emotion_path, "emotion"), (entity_graph_path, "entity_graph")]:
+    paths_to_check = [(segments_path, "segments"), (structure_path, "structure"),
+                      (emotion_path, "emotion"), (entity_graph_path, "entity_graph")]
+    if craft_path:
+        paths_to_check.append((craft_path, "craft"))
+    for path, name in paths_to_check:
         if not path.is_file():
             print(f"❌ {name} 文件不存在：{path}", file=sys.stderr)
             return 2
@@ -369,11 +620,14 @@ def main() -> int:
     segments = load_jsonl(segments_path)
     structure_rows = load_jsonl(structure_path)
     emotion_rows = load_jsonl(emotion_path)
+    craft_rows = load_jsonl(craft_path) if craft_path else []
     with open(entity_graph_path, "r", encoding="utf-8") as f:
         entity_graph = json.load(f)
 
     print(f"📖 加载 segments: {len(segments)} 段")
     print(f"📖 加载 structure: {len(structure_rows)} 行, emotion: {len(emotion_rows)} 行")
+    if craft_rows:
+        print(f"📖 加载 craft: {len(craft_rows)} 行")
     print(f"📖 加载 entity_graph: {entity_graph.get('total_entities', 0)} 个实体")
 
     # 提取情感数据
@@ -462,6 +716,20 @@ def main() -> int:
             "traits_aggregated": infer_character_traits(canonical_name, emotion_rows, craft_rows, structure_rows, segments),
             "key_moments": [p for p in trajectory if p.get("has_arc_shift") or (p.get("intensity") and p["intensity"] >= 7)][:10],
             "trajectory_sample": trajectory[:30],  # 只保留前30个点，避免文件过大
+            # v3.13.1 新增：人物分析增强
+            "character_type": compute_complexity_score(
+                infer_character_traits(canonical_name, emotion_rows, craft_rows, structure_rows, segments),
+                arc_classification.get("variance", 0),
+                len(entity_segs),
+            ),
+            "character_depth": compute_character_depth(
+                infer_character_traits(canonical_name, emotion_rows, craft_rows, structure_rows, segments),
+                len(trajectory) / len(entity_segs) if entity_segs else 0,
+                len(segments),
+            ),
+            "agency_curve": compute_agency_curve(entity_segs, structure_data, craft_rows, canonical_name),
+            "density_distribution": compute_density_distribution(entity_segs, len(segments)),
+            "dialogue_dominance": compute_dialogue_dominance(craft_rows, canonical_name),
         }
         character_arcs.append(character_arc)
 
@@ -478,10 +746,11 @@ def main() -> int:
         "total_trajectory_points": sum(c["trajectory_length"] for c in character_arcs),
         "character_arcs": character_arcs,
         "_metadata": {
-            "method": "rule_based_v2_9",
+            "method": "rule_based_v3_13_1",
             "emotion_source_priority": "D19 > D04",
             "arc_classification": "trend + variance + final_state",
-            "note": "D19 为 P4 触发式（仅关键段有），D04 为全量（每段都有），覆盖率差异是设计预期",
+            "complexity_formula": "trait_count(0.4) + emotion_variance(0.3) + relationship_count(0.3)",
+            "note": "D19 为 P4 触发式（仅关键段有），D04 为全量（每段都有），覆盖率差异是设计预期。v3.13.1新增character_type/character_depth/agency_curve/density_distribution/dialogue_dominance。",
         },
     }
 

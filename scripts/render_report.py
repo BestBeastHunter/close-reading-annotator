@@ -152,6 +152,62 @@ def _render_aggregation_html(agg: dict, doc_id: str) -> str:
             if len(arcs) > 10:
                 parts.append(f'<p style="color:#888">... 还有 {len(arcs)-10} 个角色，详见 character_arcs.json</p>')
 
+    # v3.13.1 T-114 新增：事件显赫度分析（核心/卫星事件分布 + salience_score 排行）
+    if "causal_graph" in agg:
+        cg = agg["causal_graph"]
+        stats = cg.get("statistics", {})
+        nodes = cg.get("causal_graph", {}).get("nodes", [])
+        parts.append('<h3>🔥 事件显赫度分析（v3.13.1）</h3>')
+        # 核心/卫星事件分布
+        core_count = stats.get("core_event_count", 0)
+        satellite_count = stats.get("satellite_event_count", 0)
+        turning_count = stats.get("turning_point_count", 0)
+        avg_salience = stats.get("avg_salience_score", 0)
+        parts.append('<table border="1" cellpadding="6" style="border-collapse:collapse">')
+        parts.append('<tr><th>指标</th><th>数值</th></tr>')
+        parts.append(f'<tr><td>核心事件数</td><td>{core_count}</td></tr>')
+        parts.append(f'<tr><td>卫星事件数</td><td>{satellite_count}</td></tr>')
+        parts.append(f'<tr><td>转折点事件数</td><td>{turning_count}</td></tr>')
+        parts.append(f'<tr><td>平均显赫度</td><td>{avg_salience:.3f}</td></tr>')
+        parts.append('</table>')
+        # salience_score 排行（top 5）
+        top_events = stats.get("top_salience_events", [])
+        if top_events:
+            parts.append('<p style="margin-top:10px"><strong>显赫度 Top 5 事件：</strong></p>')
+            parts.append('<table border="1" cellpadding="6" style="border-collapse:collapse">')
+            parts.append('<tr><th>排名</th><th>段ID</th><th>显赫度</th><th>D01功能</th><th>事件层级</th></tr>')
+            for i, evt in enumerate(top_events[:5], 1):
+                seg_id = evt.get("segment_id", "未知")
+                salience = evt.get("salience_score", 0)
+                d01 = evt.get("d01_function", "未知")
+                hierarchy = evt.get("event_hierarchy", {})
+                level = hierarchy.get("level", "未知") if isinstance(hierarchy, dict) else "未知"
+                parts.append(f'<tr><td>{i}</td><td>{html.escape(str(seg_id))}</td><td>{salience:.3f}</td><td>{html.escape(str(d01))}</td><td>{html.escape(str(level))}</td></tr>')
+            parts.append('</table>')
+
+    # v3.13.1 T-114 新增：人物能动性分析（能动性曲线 + 对话主导权排行）
+    if "character_arcs" in agg:
+        ca = agg["character_arcs"]
+        arcs = ca.get("character_arcs", [])
+        if arcs:
+            parts.append('<h3>🎭 人物能动性分析（v3.13.1）</h3>')
+            # 能动性分布 + 对话主导权排行
+            parts.append('<table border="1" cellpadding="6" style="border-collapse:collapse">')
+            parts.append('<tr><th>角色</th><th>主动占比</th><th>被动占比</th><th>观察者占比</th><th>能动性趋势</th><th>对话主导权</th><th>主导等级</th></tr>')
+            for c in arcs[:10]:
+                name = c.get("canonical_name", "未知")
+                agency = c.get("agency_curve", {})
+                dist = agency.get("agency_distribution", {}) if isinstance(agency, dict) else {}
+                active = dist.get("主动", 0)
+                passive = dist.get("被动", 0)
+                observer = dist.get("观察者", 0)
+                trend = agency.get("agency_trend", "未知") if isinstance(agency, dict) else "未知"
+                dialogue = c.get("dialogue_dominance", {})
+                dominance = dialogue.get("dominance_ratio", 0) if isinstance(dialogue, dict) else 0
+                level = dialogue.get("dominance_level", "未知") if isinstance(dialogue, dict) else "未知"
+                parts.append(f'<tr><td>{html.escape(str(name))}</td><td>{active:.0%}</td><td>{passive:.0%}</td><td>{observer:.0%}</td><td>{html.escape(str(trend))}</td><td>{dominance:.0%}</td><td>{html.escape(str(level))}</td></tr>')
+            parts.append('</table>')
+
     # T-094：全局统计
     parts.append('<h3>📈 全局统计</h3>')
     parts.append('<table border="1" cellpadding="6" style="border-collapse:collapse">')

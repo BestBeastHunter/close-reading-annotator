@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-scripts/scratchpad.py — Runtime Scratchpad（运行时便签本）v3.13.0
+scripts/scratchpad.py — Runtime Scratchpad（运行时便签本）v3.13.1
+
+v3.13.1 T-115 增强：
+  - 人物抽取增加 D10.speaker 对话说话者
+  - 增加代词回指处理（第一人称"我"自动绑定主角）
+  - D06 埋设-揭露形成伏笔-回收事件对（揭露时自动关闭对应埋设）
+  - 别名聚合增强（降低阈值0.6→0.5 + 称谓后缀处理 + 包含关系判断）
 
 定位：Agent 在单本书批注过程中自主维护的轻量级工作记忆区。
 不是"缩小版聚合层"，而是"输入质量增强层"——为聚合层提供更干净的输入数据。
@@ -45,7 +51,7 @@ try:
 except Exception:
     pass
 
-SCHEMA_VERSION = "3.13.0"
+SCHEMA_VERSION = "3.13.1"
 
 # 触发事件识别的 D01 功能值
 TRIGGER_EVENT_D01 = {"激励事件", "高潮", "转折", "下降行动", "结局"}
@@ -171,14 +177,41 @@ class Scratchpad:
         """判断该名字是否为已知人物（含别名）。"""
         return self.get_character(name) is not None
 
-    def find_similar_character(self, name: str, threshold: float = 0.6) -> Optional[CharacterRecord]:
-        """查找可能是同一人物的别名（编辑距离相似度）。返回最相似的人物或 None。"""
+    # v3.13.1 T-115 新增：称谓后缀列表（匹配时忽略，提升别名识别率）
+    HONORIFIC_SUFFIXES = ["先生", "小姐", "女士", "太太", "夫人", "上尉", "中尉", "少校", "上校",
+                           "将军", "司令", "政委", "老师", "教授", "博士", "医生", "护士",
+                           "同学", "朋友", "同志", "师傅", "老板", "经理", "主任", "科长", "处长", "局长"]
+
+    def _strip_honorific(self, name: str) -> str:
+        """v3.13.1 T-115 新增：去除称谓后缀，返回核心名字。"""
+        for suffix in self.HONORIFIC_SUFFIXES:
+            if name.endswith(suffix) and len(name) > len(suffix):
+                return name[:-len(suffix)]
+        return name
+
+    def find_similar_character(self, name: str, threshold: float = 0.5) -> Optional[CharacterRecord]:
+        """
+        v3.13.1 T-115 增强：查找可能是同一人物的别名（编辑距离相似度）。
+        增强点：
+          1. 降低默认阈值 0.6→0.5
+          2. 去除称谓后缀后再比较（如"江洋"和"江上尉"视为相似）
+          3. 包含关系判断（短名字是长名字子串时也可能是同一人，如"思特里克兰德"和"思特里克兰德先生"）
+        返回最相似的人物或 None。
+        """
         best_rec = None
         best_score = 0.0
+        name_stripped = self._strip_honorific(name)
+
         for rec in self.characters.values():
             candidates = [rec.canonical_name] + rec.aliases
             for c in candidates:
-                score = SequenceMatcher(None, name, c).ratio()
+                c_stripped = self._strip_honorific(c)
+                # 1. 编辑距离相似度（去除称谓后缀后比较）
+                score = SequenceMatcher(None, name_stripped, c_stripped).ratio()
+                # 2. 包含关系加分（短名字是长名字的子串）
+                if len(name_stripped) >= 2 and len(c_stripped) >= 2:
+                    if name_stripped in c_stripped or c_stripped in name_stripped:
+                        score = max(score, 0.7)
                 if score > best_score and score >= threshold:
                     best_score = score
                     best_rec = rec
@@ -365,6 +398,63 @@ class Scratchpad:
                                     rec.last_segment = segment_id
                                     rec.mention_count += 1
 
+        # 2.5 v3.13.1 T-115 新增：从 structure 层提取人物（D10.speaker 对话说话者）
+        if structure:
+            d10 = structure.get("D10_dialogue") or structure.get("D10")
+            if isinstance(d10, list):
+                for item in d10:
+                    if isinstance(item, dict):
+                        speaker = item.get("speaker") or item.get("character")
+                        if speaker and isinstance(speaker, str) and speaker.strip():
+                            speaker_name = speaker.strip()
+                            # 跳过纯代词（后续由代词回指处理）
+                            if speaker_name in ("我", "你", "他", "她", "它", "我们", "你们", "他们", "她们"):
+                                continue
+                            if not self.is_known_character(speaker_name):
+                                similar = self.find_similar_character(speaker_name)
+                                if similar:
+                                    self.mark_pending_confirmation(similar.canonical_name, speaker_name)
+                                else:
+                                    self.add_character(speaker_name, segment_id=segment_id)
+                                    new_chars += 1
+                            else:
+                                rec = self.get_character(speaker_name)
+                                if rec:
+                                    rec.last_segment = segment_id
+                                    rec.mention_count += 1
+
+        # 2.6 v3.13.1 T-115 新增：代词回指处理（第一人称"我"绑定到第一个出现的主要人物）
+        if structure or emotion:
+            # 检测本段是否有第一人称代词"我"作为情感对象或说话者
+            has_first_person = False
+            if emotion:
+                d19 = emotion.get("D19_emotion_analysis") or emotion
+                target = d19.get("target")
+                if target and isinstance(target, str) and target.strip() == "我":
+                    has_first_person = True
+            if structure and not has_first_person:
+                d10 = structure.get("D10_dialogue") or structure.get("D10")
+                if isinstance(d10, list):
+                    for item in d10:
+                        if isinstance(item, dict) and (item.get("speaker") == "我" or item.get("character") == "我"):
+                            has_first_person = True
+                            break
+
+            if has_first_person and self.characters:
+                # 找到第一个出现的主要人物（mention_count 最高或 first_segment 最早）
+                protagonist = max(
+                    self.characters.values(),
+                    key=lambda r: (r.mention_count, -get_segment_index(r.first_segment) if r.first_segment else 0),
+                    default=None,
+                )
+                if protagonist and "我" not in protagonist.aliases and "我" != protagonist.canonical_name:
+                    protagonist.aliases.append("我")
+                    if len(protagonist.aliases) > MAX_ALIASES_PER_CHARACTER:
+                        protagonist.aliases = protagonist.aliases[:MAX_ALIASES_PER_CHARACTER]
+                    protagonist.mention_count += 1
+                    protagonist.last_segment = segment_id
+                    self._touch()
+
         # 3. 从 structure 层提取事件（D01 ∈ 关键叙事段）
         if structure:
             d01 = structure.get("D01")
@@ -393,7 +483,7 @@ class Scratchpad:
                 )
                 new_events += 1
 
-        # 4. 从 interpretation 层提取事件（D06 埋设-揭露 → 伏笔-回收事件）
+        # 4. v3.13.1 T-115 增强：从 interpretation 层提取事件（D06 埋设-揭露 → 伏笔-回收事件对）
         if interpretation:
             d06 = interpretation.get("D06_information_control")
             if isinstance(d06, dict):
@@ -401,12 +491,38 @@ class Scratchpad:
                 if d06_type in ("埋设", "揭露"):
                     content = d06.get("content", "")[:30]
                     event_desc = f"信息{d06_type}：{content}"[:50]
-                    self.add_event(
+                    event_id = self.add_event(
                         segment_id=segment_id,
                         description=event_desc,
                         event_type=f"信息{d06_type}",
                     )
                     new_events += 1
+
+                    # v3.13.1 T-115 新增：伏笔-回收事件对关联
+                    # 当检测到"揭露"时，查找之前最近的"埋设"事件，形成关联
+                    if d06_type == "揭露" and event_id:
+                        # 查找之前的埋设事件（按 segment_id 倒序找最近的）
+                        previous_plant = None
+                        for evt in reversed(self.events):
+                            if evt.event_type == "信息埋设" and evt.segment_id != segment_id:
+                                # 简单内容相似度判断（前10字符匹配）
+                                if content[:10] and content[:10] in evt.description:
+                                    previous_plant = evt
+                                    break
+                        if previous_plant is None:
+                            # 没有内容匹配的，取最近一个埋设事件
+                            for evt in reversed(self.events):
+                                if evt.event_type == "信息埋设" and evt.segment_id != segment_id:
+                                    previous_plant = evt
+                                    break
+                        if previous_plant:
+                            # 关闭埋设事件（标记为已回收）
+                            previous_plant.status = "closed"
+                            # 在揭露事件描述中增加关联信息
+                            current_evt = next((e for e in self.events if e.event_id == event_id), None)
+                            if current_evt:
+                                current_evt.description = f"{current_evt.description}（回收自{previous_plant.event_id}）"[:50]
+                            self._touch()
 
         self.processed_segments += 1
         self._touch()

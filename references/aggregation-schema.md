@@ -1,8 +1,8 @@
-# references/aggregation-schema.md — 全局聚合层产物 Schema 定义 v3.1.0
+# references/aggregation-schema.md — 全局聚合层产物 Schema 定义 v3.4.0
 
 > **本文件是聚合层产物的唯一真源**（对应审计 P2-12 / 决策 22）。
 > 批注四层 Schema 的真源是 `references/schema.md`（v2.10.0）；聚合层（v2.9/v3.0/v3.7）产物 Schema 以本文件为准。
-> 聚合脚本 `scripts/aggregation/*.py` 的 `SCHEMA_VERSION`：entity/scene/character/story_type/causal/object/story_graph/adapters = `3.0.0`；narrative_structure = `3.1.0`（v3.7 新增）。
+> 聚合脚本 `scripts/aggregation/*.py` 的 `SCHEMA_VERSION`：entity/scene/story_type/object/story_graph/adapters = `3.0.0`；narrative_structure = `3.1.0`（v3.7 新增）；causal_graph/character_arcs = `3.4.0`（v3.13.1 新增事件/人物分析增强字段）。
 > 字段以两本实测书（月亮与六便士 / 上海堡垒）的真实产物为基准整理，修订字段必须先改本文件再改脚本。
 
 ---
@@ -13,6 +13,7 @@
 - 所有产物顶层含 `doc_id` / `schema_version` / `generated_at`（ISO8601）。
 - 确定性纪律（v3.0.1）：任何集合转列表必须 `sorted(set(...))`；平票取先出现者——禁止依赖 `set()` 迭代顺序（PYTHONHASHSEED 漂移，审计 P2-3）。
 - **v3.1.0 变更（ADR-014，T-036/T-037）**：新增 `narrative_structure.json`（叙事结构分析，v3.7）和 `writing_techniques.json`（叙事技法分析，v3.8）两个产物。其余 8 个聚合产物 schema 不变（3.0.0）。
+- **v3.4.0 变更（ADR-029，T-111/T-112）**：`causal_graph.json` 新增 event_hierarchy（核心/卫星事件+salience_score显赫度评分）、causal_structure（causal_type直接/间接/条件+is_turning_point）、event_attributes（时间/空间/情感/参与者/叙事功能/强度）；`character_arcs.json` 新增 character_type（扁平/圆形/尖形+complexity_score复杂度评分）、character_depth（不可还原特质+文本空白数）、agency_curve（能动性曲线+agency_distribution+agency_trend）、density_distribution（出现密度分布+peak_interval+peak_density）、dialogue_dominance（对话主导权+dominance_ratio+dominance_level+言说动词分布）。其余聚合产物 schema 不变。
 
 ---
 
