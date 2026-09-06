@@ -1,9 +1,9 @@
-﻿# 精读批注 Skill v3.8.7
+﻿# 精读批注 Skill v3.8.8
 
 > 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）与**全局聚合层**（实体/场景/角色弧线/故事类型/因果链/物件链/故事图/适配器）。
 > 适合：小说精读、故事拆解、叙事分析、文笔拆解、结构化语料构建。
 > 本仓库即**完整可运行的 Skill 包**——放到 TRAE / Cursor / Claude Code 的 skills 目录即可使用，也支持纯手动模式（把 `SKILL.md` 注入任意大模型）。
-> **版本（决策 22 三域解耦）**：skill_version = `3.8.7` / annotation schema_version = `2.10.0` / aggregation schema_version = `3.1.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`/`2.10.0`。
+> **版本（决策 22 三域解耦）**：skill_version = `3.8.8` / annotation schema_version = `2.10.0` / aggregation schema_version = `3.1.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`/`2.10.0`。
 
 ---
 
@@ -242,7 +242,7 @@ close-reading-annotator/
 
 | 版本域 | 声明点 | 值 |
 |--------|--------|-----|
-| **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.8.7` |
+| **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.8.8` |
 | **annotation schema_version** | `references/schema.md` §一 / 批注 JSON `schema_version` / annotate_segment.py / examples/llm_wrapper.py | `2.9.0` |
 | **aggregation schema_version** | `references/aggregation-schema.md` / `scripts/aggregation/*.py` | `3.1.0` |
 
@@ -250,7 +250,7 @@ close-reading-annotator/
 > 修改批注层枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**。修改聚合层产物字段：**先改 `references/aggregation-schema.md`，再改 `scripts/aggregation/*.py`**。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
 
 主要里程碑：
-- **v3.8.7**：工程化加固（T-038/T-039/T-040，ADR-016）——①`span_locator.py` 模糊匹配增强（4级匹配：精确→空白归一→去标点→模糊相似度≥0.85，自动修正引文文本）；②`annotate_segment.py` 新增 `--auto-fix`/`--no-auto-fix`（craft层校验失败自动修复重试，默认开启）；③SKILL.md 新增 §4.0 枚举值速查表（15个维度全部枚举值一眼可查）。annotation/aggregation schema 不变（纯工程化加固）。
+- **v3.8.8**：工程化加固（T-038/T-039/T-040，ADR-016）——①`span_locator.py` 模糊匹配增强（4级匹配：精确→空白归一→去标点→模糊相似度≥0.85，自动修正引文文本）；②`annotate_segment.py` 新增 `--auto-fix`/`--no-auto-fix`（craft层校验失败自动修复重试，默认开启）；③SKILL.md 新增 §4.0 枚举值速查表（15个维度全部枚举值一眼可查）。annotation/aggregation schema 不变（纯工程化加固）。
 - **v3.8.0**：叙事技法分析（T-037，ADR-014）——聚合层第 10 脚本 `writing_techniques.py`：4 子模块规则粗筛（同因果链"规则粗筛+LLM精排"架构）。①转场技巧（时间转场=年份差≥2或季节变化/空间转场=地点关键词变化/细节过渡=背景铺垫→过渡→上升行动/悬念转场=高潮转折→下降背景硬切）；②悬念设置（设疑法=D06隐藏含疑问词/连环设悬=连续≥3段隐藏/伏笔回收对=cross_refs/悬念留白=隐藏后5段内无揭示）；③蒙太奇手法（平行蒙太奇=5段窗口内地点变化≥3/交叉蒙太奇=D05≥4且D01快速切换/对比蒙太奇=相邻段D04极性相反且强度≥5）；④钩子类型（悬念钩子=段尾D06隐藏或D01转折/行动钩子=D05≥4或D01高潮/情感钩子=D04 intensity≥7/场景钩子=段首地点关键词变化）。综合技法评估（技法密度/写作风格=技法密集型≥3.0/技法均衡型≥1.5/技法简约型）。aggregation schema 不变（3.1.0，新增产物同版本）。annotation schema 不变（纯聚合新增）。
 - **v3.7.0**：叙事结构分析（T-036，ADR-014）——聚合层第 9 脚本 `narrative_structure.py`：弗雷塔格五幕（从 D01 序列按幕转换点推导，六幕区间+关键转折点+结构健康度）+ 热奈特聚焦（从 D07.type 统计+_narrator_identity，主导聚焦+切换率+复杂度+叙述者可靠性）+ 叙事时间线（从 D08.time+_time_type，时间节点+时间跳跃+时间结构类型，旧产物降级为关键词推断）+ 救猫咪节拍（简化 14 节拍，位置百分比定位+D01 信号验证）+ 叙事层级图（从 D08._narrative_level）。aggregation schema 3.0→3.1。annotation schema 不变（纯聚合新增）
 - **v3.6.0**：原子化扩展字段（T-035，ADR-014）——annotation schema 2.9.0→2.10.0，新增 5 个可选字段：D07._narrator_identity（叙述者身份ID）、D08._time_type（linear/flashback/flashforward/analepsis/prolepsis）、D08._narrative_level（1/2/3+）、D06._techniques（7种信息控制技巧数组）、D12_narrative_mode（热奈特叙事话语模式：场景/概述/停顿/省略/摘要+density+is_summary+is_scene）。全部可选允许 null，旧产物零迁移。schema.md/validate_output.py/templates 全链同步。设计意图：v3.7 叙事结构分析的原子信号前置依赖

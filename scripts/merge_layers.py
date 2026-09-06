@@ -121,7 +121,7 @@ def main() -> int:
             "structure": s_row["layers"]["structure"] if s_row and s_row.get("layers", {}).get("structure") else None,
             "interpretation": i_row["layers"]["interpretation"] if i_row and i_row.get("layers", {}).get("interpretation") else None,
             "emotion": e_row["layers"]["emotion"] if e_row and e_row.get("layers", {}).get("emotion") else None,
-            "craft": c_row.get("craft") if c_row and c_row.get("craft") else None,
+            "craft": (c_row.get("craft") or (c_row.get("layers") or {}).get("craft")) if c_row else None,
             "cross_refs_sources": src_map.get(sid, []),
             "cross_refs_targets": tgt_map.get(sid, []),
         })

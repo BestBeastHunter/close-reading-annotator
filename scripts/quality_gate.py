@@ -46,8 +46,8 @@ CJK_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\u3000-\u303f\uff00-\uffef]")
 # 乱码/特殊符号
 GARBAGE_RE = re.compile(r"[\ufffd\u0000-\u0008\u000b\u000c\u000e-\u001f]|&nbsp;|&amp;|&lt;|&gt;|<br\s*/?>|<p\s*>|</p>|<div[^>]*>|</div>", re.IGNORECASE)
 # 左右引号（中文 + 英文）
-LEFT_QUOTES = "「『“‘\"'"
-RIGHT_QUOTES = "」』”’\"'"
+LEFT_QUOTES = "「『“‘"  # v3.8.8 T-069: 仅中文左引号，英文引号单独统计
+RIGHT_QUOTES = "」』”’"  # v3.8.8 T-069: 仅中文右引号
 
 
 def load_text(input_path: Path) -> str:
@@ -102,6 +102,8 @@ def check_chinese_ratio(text: str, threshold: float) -> dict:
 
 def check_quote_balance(text: str, threshold: float) -> dict:
     """引号闭合率：左右引号数量差 / 左引号总数。"""
+    # v3.8.8 T-069: 英文引号 " 和 ' 没有左右之分，单独统计总数（不参与左右平衡）
+    english_quotes = sum(text.count(c) for c in "\"'")
     left = sum(text.count(c) for c in LEFT_QUOTES)
     right = sum(text.count(c) for c in RIGHT_QUOTES)
     if left == 0 and right == 0:

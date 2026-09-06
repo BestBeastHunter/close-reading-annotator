@@ -121,16 +121,17 @@ def _make_anchor(seg_row: dict, snippet_len: int = 24) -> tuple[str, dict | None
             text = ts.get("text", "")
     if not text:
         return "", None
-    clean = " ".join(text.split())[:snippet_len]
-    if not clean:
+    # v3.8.8 T-068：用原始文本截取，避免空白归一化导致的坐标漂移
+    raw_snippet = text[:snippet_len]
+    if not raw_snippet.strip():
         return "", None
     # 段内相对偏移回算：在原始 text 中定位 clean 的首部片段
-    head = clean[:6]
+    head = raw_snippet[:6]
     idx = text.find(head)
     span = None
-    if idx >= 0 and idx + len(clean) <= len(text):
-        span = {"start": idx, "end": idx + len(clean)}
-    return clean, span
+    if idx >= 0 and idx + len(raw_snippet) <= len(text):
+        span = {"start": idx, "end": idx + len(raw_snippet)}
+    return raw_snippet, span
 
 
 def main() -> int:
