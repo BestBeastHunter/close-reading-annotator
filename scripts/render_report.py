@@ -53,7 +53,15 @@ AGG_FILES = [
     ("character_network", "{doc}_character_network.json"),
     ("character_biographies", "{doc}_character_biographies.json"),
     ("writing_techniques", "{doc}_writing_techniques.json"),
+    ("story_graph", "{doc}_story_graph.json"),
 ]
+
+# v3.17.0：适配器三格式摘要（text2story/yarn/ncp，位于聚合产物目录）
+ADAPTER_FORMATS = (
+    ("text2story", "text2story"),
+    ("yarn", "yarn"),
+    ("ncp", "ncp"),
+)
 
 
 def _load_jsonl(p: Path) -> list[dict]:
@@ -86,6 +94,25 @@ def _load_aggregation(agg_dir: Path, doc_id: str) -> dict:
                 agg[key] = json.loads(fpath.read_text(encoding="utf-8"))
             except Exception:
                 pass
+    # v3.17.0：适配器三格式（text2story/yarn/ncp）摘要——双路径探测：
+    # 根目录（新 run_pipeline Phase 5 输出）与 adapters/ 子目录（v3.16.x 旧产物）兼容
+    adapters_summary = []
+    for fmt_key, _label in ADAPTER_FORMATS:
+        fpath = agg_dir / f"{doc_id}_{fmt_key}.json"
+        if not fpath.exists():
+            fpath = agg_dir / "adapters" / f"{doc_id}_{fmt_key}.json"
+        if fpath.exists():
+            try:
+                data = json.loads(fpath.read_text(encoding="utf-8"))
+                adapters_summary.append({
+                    "format": fmt_key,
+                    "file": fpath.name,
+                    "summary": data if isinstance(data, (dict, list)) else {"note": str(data)[:200]},
+                })
+            except Exception:
+                pass
+    if adapters_summary:
+        agg["adapters"] = {"formats": adapters_summary}
     return agg
 
 
@@ -502,6 +529,25 @@ def _render_aggregation_md(agg: dict, doc_id: str) -> list[str]:
         for t in wt.get("techniques", [])[:10]:
             lines.append(f"  - {t.get('technique','')}：{t.get('count',0)} 处")
         lines.append("")
+    if "story_graph" in agg:
+        sg = agg["story_graph"]
+        gs = sg.get("global_statistics", {})
+        lines.append("### 🧩 故事图（全局合并）")
+        lines.append("")
+        lines.append(f"- 实体 {gs.get('total_entities', 0)} / 场景 {gs.get('total_scenes', 0)} / "
+                     f"角色 {gs.get('total_characters', 0)} / 因果边 {gs.get('total_causal_edges', 0)} / "
+                     f"物件链 {gs.get('total_object_chains', 0)}")
+        gtype = sg.get("graph_type") or sg.get("meta", {}).get("graph_type", "")
+        if gtype:
+            lines.append(f"- 图谱类型：{gtype}")
+        lines.append("")
+    if "adapters" in agg:
+        lines.append("### 🔌 适配器输出（text2story / YARN / NCP）")
+        lines.append("")
+        for fmt in agg["adapters"].get("formats", []):
+            fname = fmt.get("file", "?")
+            lines.append(f"- **{fmt.get('format')}**：`{fname}`")
+        lines.append("")
     return lines
 
 
@@ -643,6 +689,31 @@ def _render_aggregation_html(agg: dict, doc_id: str) -> str:
                          f'<td>{t.get("count",0)}</td>'
                          f'<td>{html.escape("、".join(t.get("example_segments", [])[:3]))}</td></tr>')
         parts.append('</table>')
+
+    if "story_graph" in agg:
+        sg = agg["story_graph"]
+        gs = sg.get("global_statistics", {})
+        parts.append(f'<h3 id="agg-storygraph">🧩 故事图（全局合并）</h3>')
+        parts.append('<table border="1" cellpadding="6" style="border-collapse:collapse">')
+        parts.append('<tr><th>实体</th><th>场景</th><th>角色</th><th>因果边</th><th>物件链</th></tr>')
+        parts.append(f'<tr><td>{gs.get("total_entities", 0)}</td><td>{gs.get("total_scenes", 0)}</td>'
+                     f'<td>{gs.get("total_characters", 0)}</td><td>{gs.get("total_causal_edges", 0)}</td>'
+                     f'<td>{gs.get("total_object_chains", 0)}</td></tr>')
+        parts.append('</table>')
+        gtype = sg.get("graph_type") or sg.get("meta", {}).get("graph_type", "")
+        if gtype:
+            parts.append(f'<p class="muted">图谱类型：{html.escape(str(gtype))}</p>')
+        parts.append('</div>')
+
+    if "adapters" in agg:
+        parts.append('<h3 id="agg-adapters">🔌 适配器输出（text2story / YARN / NCP）</h3>')
+        parts.append('<table border="1" cellpadding="6" style="border-collapse:collapse">')
+        parts.append('<tr><th>格式</th><th>文件</th></tr>')
+        for fmt in agg["adapters"].get("formats", []):
+            parts.append(f'<tr><td>{html.escape(str(fmt.get("format","")))}</td>'
+                         f'<td><code>{html.escape(str(fmt.get("file","")))}</code></td></tr>')
+        parts.append('</table>')
+        parts.append('</div>')
 
     parts.append('</div>')
     return "".join(parts)

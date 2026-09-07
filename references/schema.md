@@ -579,7 +579,7 @@ Layer 4 **不在逐片段中执行**——等 Layer 1-3 全部完成后，独立
 }
 ```
 
-> **v2.7.0 checkpoint 扩展**：`completed[].layers` 新增合法层名 `"emotion"`（P4 触发段完成 D19 后由 annotate/人工登记）；`emotion_skipped` 登记未触发段。层依赖：cross_segment（Phase 3）不依赖 emotion；merge/report（Phase 4/5）读取 emotion.jsonl（缺失则跳过 emotion 区）。
+> **v2.7.0 checkpoint 扩展**：`completed[].layers` 新增合法层名 `"emotion"`（P4 触发段完成 D19 后由 annotate/人工登记）；`emotion_skipped` 登记未触发段。层依赖：cross_segment（Phase 4）不依赖 emotion；merge/report（Phase 6/8）读取 emotion.jsonl（缺失则跳过 emotion 区）。
 
 **续跑逻辑**：
 1. 读 checkpoint；

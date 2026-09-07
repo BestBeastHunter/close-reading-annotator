@@ -1,4 +1,4 @@
-﻿# 精读批注 Skill v3.16.4
+﻿# 精读批注 Skill v3.17.0
 
 > 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）与**全局聚合层**（实体/场景/角色弧线/故事类型/因果链/物件链/故事图/适配器）。
 > 适合：小说精读、故事拆解、叙事分析、文笔拆解、结构化语料构建。
@@ -65,54 +65,81 @@ python scripts/checkpoint.py status --doc-id sample_novel_zh
 
 ---
 
-## 三、完整流水线（Phase 1–5）
+## 三、完整流水线（Phase 1–8，v3.17.0 无任何可选步骤）
 
-**设计原则**：每段每层独立落盘 → 支持断点续跑 → 跨段分析二阶段独立一次 → 各层合并。任何环境都能只跑其中一部分（纯 LLM 环境可跳过 scripts 手动批注）。
+**设计原则**：每段每层独立落盘 → 支持断点续跑 → 跨段分析 → 聚合层 → 合并 → 校准 → 报告。**全部阶段必须执行**（v3.17.0 Owner 指令：聚合层、LumberChunker 精确切分、校准均为必须；报告是最后一步）。
 
-### Phase 1：输入预处理（切分 + 初始化 checkpoint）
+### Phase 1：输入预处理（质量门 + 切分）
 
 ```bash
+# 1a 质量门（硬门槛，fail 必须修复原文后重跑）
+python scripts/quality_gate.py --input path/to/novel.txt --out outputs/annotations/my_novel_01/my_novel_01_quality_report.json --fail-on-error
+
+# 1b 粗切分
 python scripts/preprocess.py \
   --input path/to/novel.txt \
   --doc-id my_novel_01 \
-  --output-dir outputs/annotations/my_novel_01 \
-  --max-tokens 2000
+  --output-dir outputs/annotations/my_novel_01
 ```
 
 产出：`<doc_id>_segments.jsonl`（每行一个片段，含 `segment_id`/`chapter`/`section_type`/`text_span`/`context_prev`/`context_next`）+ `<doc_id>_checkpoint.json`。
 
 切分能力：
-- 章节边界识别：「第X章」「Chapter X」「「　　一」单独成行（兼容行首空白）」「序章/楔子/尾声/后记/Prologue/Epilogue」
+- 章节边界识别：「第X章」「第X部/卷」「Chapter X」「「　　一」单独成行（兼容行首空白）」「序章/楔子/尾声/后记/Prologue/Epilogue」
 - frontmatter 显式输出为 `section_type="frontmatter"` 片段（不静默丢弃）
 - 无章节边界时退化为按段落 + 句子边界的长度智能切分，**全书不截断**
 - 坐标自校验断言：每个片段 `start_char/end_char` 切片与原文比对，漂移即抛异常
 - 全局 segment 计数器：`segment_id = {doc_id}_seg_{4位十进制}`（跨子切不回零，防 ID 碰撞）
 - 每段自动注入前后 200 字符上下文锚点；中文 token 估算 = `cn_char + en_words` 组合
 
-### Phase 2：逐片段批注（L1 结构 / L2 阐释 / L3 文笔 / P4 情感）
+### Phase 2：LumberChunker 场景语义精确切分（必须）
+
+粗切分按章节+长度机械切分，可能一个 segment 含多个场景 → 精读被混淆。本阶段用 Agent LLM 做场景边界判断（只标记不切分），再由脚本按边界重切为场景级 segments。
+
+```bash
+# 2a 场景边界判断（wrapper 需要 LLM API；也可 Agent 手动判断，Prompt 见 SKILL.md §3.2）
+export SCENE_BOUNDARY_API_KEY="your-api-key"
+python examples/scene_boundary_wrapper.py \
+  --segments outputs/annotations/my_novel_01/my_novel_01_segments.jsonl \
+  --output outputs/annotations/my_novel_01/my_novel_01_scene_boundary.json \
+  --doc-id my_novel_01
+
+# 2b 重排为场景级 segments（必须）
+python scripts/reshape_segments.py \
+  --segments outputs/annotations/my_novel_01/my_novel_01_segments.jsonl \
+  --boundaries outputs/annotations/my_novel_01/my_novel_01_scene_boundary.json \
+  --original path/to/novel.txt \
+  --doc-id my_novel_01 --output-dir outputs/annotations/my_novel_01
+```
+
+产出：`<doc_id>_final_segments.jsonl`（场景级，segment_id=`{doc_id}_scene_{NNN}`）+ `<doc_id>_segment_id_mapping.json`（新旧 ID 映射）。**后续 Phase 3-8 全部使用 final_segments.jsonl**（run_pipeline 自动切换）。
+
+### Phase 3：逐片段批注（L1 结构 / L2 阐释 / L3 文笔 / P4 情感）
 
 ```bash
 python scripts/annotate_segment.py \
-  --segments outputs/annotations/my_novel_01/my_novel_01_segments.jsonl \
+  --segments outputs/annotations/my_novel_01/my_novel_01_final_segments.jsonl \
   --doc-id my_novel_01 \
-  --segment my_novel_01_seg_0001 \
-  --layers structure,interpretation,craft \
+  --segment my_novel_01_scene_001 \
+  --layers structure,interpretation,craft,emotion \
   --output-dir outputs/annotations/my_novel_01
 ```
 
+- **四层全量 × 全部 segment，无采样、无档级**（v3.17.0）
 - `--layers` 组合：`structure` / `structure,interpretation` / `structure,interpretation,craft`，可加 `emotion`（P4，D19 情感分析）
 - **P4 情感层（v2.7）**：`--layers emotion` 时脚本自动读取该段 structure 的 D01/D04/D10 作为触发判定上下文并注入原文；情感词枚举 50 词见 [references/emotion-lexicon.md](references/emotion-lexicon.md)；`target/trigger/arc` 无明确值必须写 `null` + `null_reasons`，禁止编造
+- **Runtime Scratchpad（v3.13.0）**：批注过程中维护人物/事件工作记忆，提升指称一致性（默认启用）
 - 断点续跑：`--resume`（默认开启）自动跳过 checkpoint 中已完成的 `(segment, layer)`
 - 每层产出自动跑 validate_output，通过才写 checkpoint + JSONL，失败最多重试 3 次
 
-### Phase 3：跨段分析（Layer 4，整体一次）
+### Phase 4：跨段分析（Layer 4，整体一次）
 
 跨段关系必须看到整本书的完整图景才能判断（伏笔-回收/呼应），不能混在逐段批注里：
 
 ```bash
 python scripts/cross_segment.py \
   --doc-id my_novel_01 \
-  --segments outputs/annotations/my_novel_01/my_novel_01_segments.jsonl \
+  --segments outputs/annotations/my_novel_01/my_novel_01_final_segments.jsonl \
   --structure outputs/annotations/my_novel_01/my_novel_01_structure.jsonl \
   --interpretation outputs/annotations/my_novel_01/my_novel_01_interpretation.jsonl \
   --craft outputs/annotations/my_novel_01/my_novel_01_craft.jsonl \
@@ -120,26 +147,47 @@ python scripts/cross_segment.py \
 ```
 
 产出 `cross_segment.jsonl`。每条 `cross_ref` 是**双引用**（`segment_id` 位置 ID + `anchor_text` 内容锚点）——将来切分版本变化导致序号漂移时，`anchor_text` 仍可在原文检索重定位，关系链不静默失效。
-实现为**启发式规则先行**（情绪强度突变=因果候选、视角切换=时序候选、D09 主题复用=呼应候选、D06 埋设-揭露=伏笔-回收候选），保证首次运行就产出可用列表；高精度 LLM 二分类可留给你自己的批量管线叠加。重跑默认 `--preserve-curated` 保留人工核验过的条目（规则条目带 `_source:'rule'` 标记）。
+实现为**启发式规则**（情绪强度突变=因果候选、视角切换=时序候选、D09 主题复用=呼应候选、D06 埋设-揭露=伏笔-回收候选）。重跑默认 `--preserve-curated` 保留人工核验过的条目（规则条目带 `_source:'rule'` 标记）。
 
-### Phase 4：合并（嵌套文档）
+### Phase 5：聚合层（必须，12 脚本）
+
+> **v3.17.0 升级：聚合层由"可选但推荐"变为必须**。批注管"逐段信号"，聚合管"全书拼图"——实体消解 → 人物网络 → 场景图 → 角色弧线 → 故事类型 → 叙事结构 → 叙事技法 → 因果链 → 物件链 → 人物传记 → 故事图 → 适配器（text2story/YARN/NCP）。全部 12 个模块产物进入 Phase 8 报告展示。
+
+```bash
+# 方式一：run_pipeline 自动执行（Phase 5）
+python scripts/run_pipeline.py --doc-id my_novel_01 --output-dir outputs/annotations/my_novel_01 --phases 5
+
+# 方式二：逐个脚本（12 个命令见 SKILL.md §3.5，产物在 <out>/aggregation/）
+```
+
+### Phase 6：合并（嵌套文档）
 
 ```bash
 python scripts/merge_layers.py \
   --doc-id my_novel_01 \
-  --segments outputs/annotations/my_novel_01/my_novel_01_segments.jsonl
+  --segments outputs/annotations/my_novel_01/my_novel_01_final_segments.jsonl
 ```
 
 产出 `merged.jsonl`——每行一个 segment，把该段 L1/L2/L3 + 情感层 + 该段作为 source/target 的 cross_refs ID 嵌套在一起。优先从 segments 读 `text_span`（兼容 annotation 自带 `text_span` 的形态）。
 
-### Phase 5（可选）：人类可读报告
+### Phase 7：后处理校准（必须，位于报告之前）
 
 ```bash
-python scripts/render_report.py --doc-id my_novel_01 --format html
-python scripts/render_report.py --doc-id my_novel_01 --format md
+python scripts/calibrate_quality.py --dir outputs/annotations/my_novel_01 --doc-id my_novel_01 --in-place
+python scripts/recalibrate_confidence.py --dir outputs/annotations/my_novel_01 --doc-id my_novel_01 --all-layers --in-place
+python scripts/cross_validate_emotion.py --dir outputs/annotations/my_novel_01 --doc-id my_novel_01 --in-place
 ```
 
-产出 `report.html` / `report.md`（零第三方依赖，HTML 内联 CSS 直接浏览器打开）。含结构全景（章节/片段数、叙事功能分布、情绪强度折线、节奏条形）、主题/佳句 Top/修辞统计、跨段关系列表。
+三项校准：①quality_score（D13-D17 加权文笔评分）②confidence 信号驱动重算（校验/字段/引文/枚举/跨层五信号）③DLUT 弱信号交叉验证（情感词频与 D19 对比，一致率 >70% 达标）。校准结果回写批注行，报告展示校准后数据。
+
+### Phase 8：报告渲染（最后一步，必须）
+
+```bash
+python scripts/render_report.py --doc-id my_novel_01 --format html --agg-dir outputs/annotations/my_novel_01/aggregation
+python scripts/render_report.py --doc-id my_novel_01 --format md --agg-dir outputs/annotations/my_novel_01/aggregation
+```
+
+产出 `report.html` / `report.md`（零第三方依赖，HTML 内联 CSS 直接浏览器打开）。含：TOC / **聚合分析 12 模块**（故事概览/叙事结构/实体图谱/场景图/角色弧线/关系网络/因果图/物件链/人物传记/叙事技法/故事图/适配器三格式）/ 3 张 SVG 图 / L1-L4 摘要 / 跨段关系列表 / 全量逐段详情（`<details>` 折叠）。
 
 ### 校验（任意 Phase 后均可跑）
 
@@ -172,10 +220,10 @@ python scripts/checkpoint.py status --doc-id my_novel_01            # 查询进�
 python scripts/checkpoint.py reset-layer --doc-id my_novel_01 --layer structure  # 重置某层
 python scripts/checkpoint.py reset-all --doc-id my_novel_01         # 整体重置
 python scripts/fill_spans.py ...   # 回补存量批注缺失的 span（历史产物迁移用）
+python scripts/check_quotes.py --jsonl <某层>.jsonl --segments <segments.jsonl>  # 引文预检（v3.15）
 ```
 
 ---
-
 ## 四、目录结构
 
 ```
@@ -211,14 +259,14 @@ close-reading-annotator/
 │   ├── fill_spans.py                # 回补存量批注 span
 │   ├── export_dataset.py            # 脱敏导出训练数据
 │   ├── span_locator.py              # v2.7 新增：span 定位公共模块（fill_spans/annotate 复用）
-│   ├── select_segments.py           # v2.7 新增：段采样分层（deep/light/skip，仅显式降级选项，默认全量深度）
-│   ├── run_pipeline.py              # v2.7 新增：Phase 1–5 一体化驱动 + 断点续跑 + --plan
+│   ├── select_segments.py           # v2.7 新增：段采样分层（v3.17.0 起不在正式流程内）
+│   ├── run_pipeline.py              # v2.7 新增/v3.17.0 重构：Phase 1–8 一体化驱动 + 断点续跑
 │   ├── check_quotes.py              # v3.15 新增：引文预检（D06/D19 key_phrases/craft 全量子串校验）
 │   ├── check_enum_consistency.py    # v3.15 新增：枚举一致性自检（validate_output 常量 vs SKILL 速查表）
 │   ├── scratchpad.py                # v3.13 新增：Runtime Scratchpad 运行时便签本（人物/事件/物品工作记忆）
 │   ├── quality_gate.py              # v3.4 新增：Phase 0 数据质量看门狗（五维检测，粗切前硬门槛）
-│   ├── quant_analyzer.py            # v3.4 新增：Phase 1.5 计算文学分析（逐 segment 量化指标，jieba 可选）
-│   ├── reshape_segments.py          # v3.5 新增：Phase 1.25 精细化切分重排（场景边界判断后按字符区间重切）
+│   ├── quant_analyzer.py            # v3.4 新增：计算文学分析（批注前辅助，逐 segment 量化指标，jieba 可选）
+│   ├── reshape_segments.py          # v3.5 新增：Phase 2b 场景语义精确切分重排（必须）（场景边界判断后按字符区间重切）
 │   │
 │   └── aggregation/                 # v2.9/v3.0/v3.7 新增：全局聚合器（批注完成后运行，独立后处理）
 │       ├── entity_resolution.py     # v2.9 Step 1：实体消解（→ entity_graph.json）
@@ -256,6 +304,7 @@ close-reading-annotator/
 > 修改批注层枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**。修改聚合层产物字段：**先改 `references/aggregation-schema.md`，再改 `scripts/aggregation/*.py`**。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
 
 主要里程碑：
+- **v3.17.0**：流程架构重构（Owner 指令：无任何可选步骤、全部必须、连续编号）——run_pipeline 重构为连续 Phase 1–8（质量门+粗切 → LumberChunker 精确切分必须 → 四层全量批注 → 跨段 → 聚合 12 脚本 → 合并 → 校准移到报告前 → 报告最后一步）；聚合层由"可选但推荐"升级为必须 + report 补 story_graph/adapters 渲染（12 模块全显示）；Phase 3.5 精排移除、段采样分层从工作流移除（--plan 参数删除）；质量门集成 Phase 1a 硬门槛。
 - **v3.16.3**（T-144/T-145）：发布前逐文件总检——修复聚合脚本 D19.target 同型 bug（character_network/character_biographies 从 primary 取 target 恒空 → 改从 emotion 层顶层取 dict{name}）；文档版本三域统一（skill 3.16.3 / annotation 2.10.0 / aggregation 3.5.0）；**批注深度策略修正：全量深度批注为默认与唯一正式档位**（段采样分档仅保留为显式降级选项）。
 - **v3.16.0**（T-143）：全面代码审计修复轮——cross_segment 增强信号双重失效（追加进 refs 未落盘 → 移到去重前）、D19.target dict 兼容、causal_graph emotion_targets 类型、preprocess 兜底段 is_polluted、annotate_segment 模式 A _pad_metadata、SKILL §4.6 补 check_quotes 用法。
 - **v3.15.1**（T-133~T-136）：报告重构——四层全量呈现 + 聚合分析 10 模块集成 + 零依赖 SVG 可视化 + 报告分两段生成（--agg-dir）。
@@ -283,7 +332,7 @@ close-reading-annotator/
 
 **正式流程 = 对全部 segment 执行四层全量深度批注**（structure + interpretation + emotion + craft）→ 跨段 → 合并 → 报告 → 聚合层。本 skill 的产品定位是「深度精读工具」：每一段都执行同等深度的四层分析，**不做按档级/场景的抽样缩减**。
 
-> 段采样分档（`select_segments.py` 的 deep/light/skip）仅保留为**资源受限时的显式降级选项**：使用者显式运行它生成 plan 并传给 `run_pipeline.py --plan` 才生效；不传 `--plan` 时一律全量深度。降级不影响本 skill 的全量深度默认定位。
+> v3.17.0 起段采样从工作流移除：`--plan` 参数已删除，正式执行不得使用采样；全量深度是唯一正式档位。
 
 ---
 

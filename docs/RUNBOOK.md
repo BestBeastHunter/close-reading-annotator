@@ -2,11 +2,13 @@
 
 > **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
 > 完整 schema / 枚举 / 设计决策见 `references/schema.md`（批注层）、`references/aggregation-schema.md`（聚合层）、`SKILL.md`、工作区 `docs/design-decisions.md`。
-> 版本：skill v3.16.4 / annotation schema 2.10.0 / aggregation schema 3.5.0（决策 22 三域解耦）
+> 版本：skill v3.17.0 / annotation schema 2.10.0 / aggregation schema 3.5.0（决策 22 三域解耦）
 
 ---
 
 ## 0. 5 分钟跑通全流程（冒烟测试）
+
+> **v3.17.0 流程架构**：连续 Phase 1–8，**无任何可选步骤**。聚合层/精确切分/校准均为必须阶段；报告是最后一步。
 
 ```bash
 # 假设 skill 目录为 ./close-reading-annotator，输出目录为 ./out
@@ -14,55 +16,68 @@ SKILL=./close-reading-annotator
 OUT=./out
 DOC=my_book
 
-# Phase 0：数据质量看门狗（v3.4 新增，粗切前必须跑）
-python $SKILL/scripts/quality_gate.py --input book.txt --out $OUT/quality_report.json
-# 检查 verdict：fail 项需修复原文后再进入 Phase 1；warn 可继续但需留意
+# 一条命令全流程（推荐）：质量门→粗切→LumberChunker→四层批注→跨段→聚合→合并→校准→报告
+python $SKILL/scripts/run_pipeline.py --input book.txt --doc-id $DOC \
+    --output-dir $OUT --llm-cmd "python $SKILL/examples/llm_wrapper.py --mock" --report-format md
+# 断点续跑是默认行为（读 checkpoint 跳过已完成阶段/片段）；--force 强制重跑
 
-# Phase 1：切分
+# === 手动分步执行（等价，便于观察每步输出） ===
+
+# Phase 1：输入预处理（1a 质量门硬门槛 + 1b 粗切分）
+python $SKILL/scripts/quality_gate.py --input book.txt --out $OUT/${DOC}_quality_report.json --fail-on-error
+# 检查 verdict：fail 项必须修复原文后重跑（不允许带病进入切分）
 python $SKILL/scripts/preprocess.py --input book.txt --doc-id $DOC --output-dir $OUT
 
-# Phase 1.25：精细化切分重排（v3.5 新增，可选但推荐；冒烟测试可跳过）
-# 步骤A：Agent 用自身 LLM 逐对判断相邻段场景边界，输出 scene_boundary.json（Prompt 见 SKILL.md §3.1.5）
-# 步骤B：重排脚本按边界点从原文重切，输出场景级 final_segments
+# Phase 2：LumberChunker 场景语义精确切分（必须，不允许跳过）
+# 2a 场景边界判断（wrapper 需要 LLM API；也可 Agent 手动判断，Prompt 见 SKILL.md §3.2）
+export SCENE_BOUNDARY_API_KEY="your-api-key"   # 兼容 OpenAI/DeepSeek 等
+python $SKILL/examples/scene_boundary_wrapper.py \
+    --segments $OUT/${DOC}_segments.jsonl --output $OUT/${DOC}_scene_boundary.json --doc-id $DOC
+# 2b 重排为场景级 segments
 python $SKILL/scripts/reshape_segments.py \
     --segments $OUT/${DOC}_segments.jsonl \
     --boundaries $OUT/${DOC}_scene_boundary.json \
     --original book.txt \
     --doc-id $DOC --output-dir $OUT
 # 产出 ${DOC}_final_segments.jsonl（场景级）+ ${DOC}_segment_id_mapping.json（新旧ID映射）
-# 跳过本阶段则后续用 ${DOC}_segments.jsonl（粗切）即可
+# 后续 Phase 3-8 全部使用 final_segments.jsonl（run_pipeline 自动切换）
 
-# Phase 1.5：计算文学分析（v3.4 新增，重排后/批注前，逐 segment 量化指标）
-python $SKILL/scripts/quant_analyzer.py --segments $OUT/${DOC}_final_segments.jsonl --out $OUT/${DOC}_quant_metrics.jsonl
-# 产出可注入 annotate_segment 的 Prompt 作为 LLM 批注的硬证据
-
-# Phase 2：全自动批量批注（用官方 mock wrapper 跑通链路，structure 层）
+# Phase 3：逐段批注（四层全量 × 全部 segment，无采样）
 python $SKILL/scripts/annotate_segment.py \
     --segments $OUT/${DOC}_final_segments.jsonl \
     --doc-id $DOC --output-dir $OUT \
-    --checkpoint $OUT/${DOC}_checkpoint.json \
-    --layers structure --all-pending \
+    --layers structure,interpretation,craft,emotion --all-pending \
     --llm-cmd "python $SKILL/examples/llm_wrapper.py --mock"
 
-# Phase 3-5：跨段 → 合并 → 报告
-python $SKILL/scripts/cross_segment.py --doc-id $DOC --segments $OUT/${DOC}_segments.jsonl \
-    --structure $OUT/${DOC}_structure.jsonl --output-dir $OUT
-python $SKILL/scripts/merge_layers.py --doc-id $DOC --segments $OUT/${DOC}_segments.jsonl --output-dir $OUT
-python $SKILL/scripts/render_report.py --doc-id $DOC --output-dir $OUT --format md
+# Phase 4：跨段分析（Layer 4 规则启发式）
+python $SKILL/scripts/cross_segment.py --doc-id $DOC \
+    --segments $OUT/${DOC}_final_segments.jsonl --structure $OUT/${DOC}_structure.jsonl \
+    --interpretation $OUT/${DOC}_interpretation.jsonl --craft $OUT/${DOC}_craft.jsonl \
+    --output-dir $OUT
+
+# Phase 5：聚合层（必须，12 脚本全跑；也可用 run_pipeline --phases 5）
+# 全部命令见 §2.7；产物在 $OUT/aggregation/
+
+# Phase 6：合并
+python $SKILL/scripts/merge_layers.py --doc-id $DOC \
+    --segments $OUT/${DOC}_final_segments.jsonl --output-dir $OUT
+
+# Phase 7：后处理校准（必须，位于报告之前）
+python $SKILL/scripts/calibrate_quality.py --dir $OUT --doc-id $DOC --in-place
+python $SKILL/scripts/recalibrate_confidence.py --dir $OUT --doc-id $DOC --all-layers --in-place
+python $SKILL/scripts/cross_validate_emotion.py --dir $OUT --doc-id $DOC --in-place
+
+# Phase 8：报告渲染（最后一步，含全部四层 + 跨段 + 聚合 12 模块）
+python $SKILL/scripts/render_report.py --doc-id $DOC --output-dir $OUT --format md \
+    --agg-dir $OUT/aggregation
 ```
 
-**Phase 7：聚合层完成后重生成报告（v3.15.1，T-133）**——报告分两段生成：
-Phase 5 先生成不含聚合分析的报告；跑完 §2.7 聚合层 10 脚本后，重跑 render_report 即可把
-10 个聚合模块（故事概览/叙事结构/实体图谱/场景图/角色弧线/关系网络/因果图/物件链/人物传记/叙事技法）
-与可视化（情感强度曲线 D04、节奏曲线 D05、角色情感弧 D19、目录）并入报告：
-```bash
-python $SKILL/scripts/render_report.py --doc-id $DOC --format html \
-    --agg-dir $OUT/aggregation   # 聚合产物目录（默认 <segments 父目录>/aggregation，可省略）
-```
-HTML 报告含：TOC / 聚合分析 10 模块 / 3 张 SVG 图 / L1-L4 摘要 / 全量逐段详情（`<details>` 折叠，每段四层全字段）。
-MD 报告含：聚合分析 10 模块摘要 + L1-L4 摘要（不含 SVG）。
+HTML 报告含：TOC / 聚合分析 12 模块（故事概览/叙事结构/实体图谱/场景图/角色弧线/关系网络/因果图/物件链/人物传记/叙事技法/故事图/适配器三格式）/ 3 张 SVG 图 / L1-L4 摘要 / 全量逐段详情（`<details>` 折叠，每段四层全字段）。
+MD 报告含：聚合分析 12 模块摘要 + L1-L4 摘要（不含 SVG）。
 
 **验证**：`python $SKILL/scripts/checkpoint.py status --doc-id $DOC --dir $OUT` 全部 100%。
+
+> **骨架模式**（批注已就绪，只跑跨段→聚合→合并→校准→报告）：`python $SKILL/scripts/run_pipeline.py --doc-id $DOC --output-dir $OUT --phases 4,5,6,7,8`
 
 ---
 
@@ -88,7 +103,7 @@ MD 报告含：聚合分析 10 模块摘要 + L1-L4 摘要（不含 SVG）。
 
 ## 2. CLI 速查表
 
-> **输出参数统一约定（v3.15.0，T-126）**：所有产出型脚本统一用 `--output-dir` 指定输出位置；其中 `merge_layers.py` / `cross_segment.py` / `render_report.py` 的 `--output-dir` 同时兼容旧别名 `--output`（两者等价）。**注意：这 3 个脚本的 `--output-dir` 接收的是"输出文件路径"**（不是目录），不传时默认写到当前目录的 `{doc_id}_<产物名>`。聚合层 10 脚本的 `--output-dir` 才是真正的"输出目录"。
+> **输出参数统一约定（v3.15.0，T-126）**：所有产出型脚本统一用 `--output-dir` 指定输出位置；其中 `merge_layers.py` / `cross_segment.py` / `render_report.py` 的 `--output-dir` 同时兼容旧别名 `--output`（两者等价）。**注意：这 3 个脚本的 `--output-dir` 接收的是"输出文件路径"**（不是目录），不传时默认写到当前目录的 `{doc_id}_<产物名>`。聚合层 12 脚本的 `--output-dir` 才是真正的"输出目录"。
 
 ### 2.1 preprocess.py（Phase 1）
 
@@ -129,26 +144,27 @@ python scripts/checkpoint.py status --doc-id <doc_id> --dir <out>     # 查看�
 python scripts/checkpoint.py reset-layer --doc-id <doc_id> --layer structure --dir <out>  # 重置某层
 ```
 
-### 2.4 select_segments.py（段采样分层，决策 18 新增；v3.16.3 起仅为显式降级选项）
+### 2.4 select_segments.py（v3.17.0 起不在正式流程内）
 
-> ⚠️ **默认流程是全量深度批注**——不传 `--plan` 时 run_pipeline 对全部段执行四层全量批注。下面的分档仅在资源受限、需要显式降级时才使用。
+> **已从工作流移除**（v3.17.0 Owner 指令：无任何可选步骤、全量深度为唯一正式流程）。`--plan` 参数已从 run_pipeline 删除；正式执行不得使用段采样。脚本文件保留仅用于个人实验/资源受限场景，不属于本 skill 的流程。
 
-```bash
-python scripts/select_segments.py --structure <out>/{doc}_structure.jsonl --output <out>/{doc}_segment_plan.json
-# 产出 {doc}_segment_plan.json（tiers: deep/light/skip + per_segment 理由）
-```
-- 默认规则：D01 ∈ {激励事件,上升行动,高潮,转折} 或 D04.intensity≥6 或 D07.is_switch_point → **deep**
-- D01 ∈ {背景铺垫,过渡} → **skip**；其余 → **light**
-- 配合 `run_pipeline.py --plan`：structure 全量跑，深度层只跑 deep 段
-
-### 2.5 run_pipeline.py（Phase 1-5 一体化，决策 18 新增）
+### 2.5 run_pipeline.py（Phase 1-8 一体化，决策 18 新增 / v3.17.0 重构）
 
 ```bash
+# 一条命令全流程：质量门→粗切→LumberChunker→四层批注→跨段→聚合→合并→校准→报告
 python scripts/run_pipeline.py --input <原文.txt> --doc-id <doc_id> --output-dir <out> \
-    --plan <out>/{doc}_segment_plan.json --llm-cmd "python wrapper.py" --report-format md
-# --phases 3,4,5   # 只跑跨段→合并→报告（批注已就绪时）
+    --llm-cmd "python wrapper.py" --report-format md
+
+# 骨架模式（批注已就绪，只跑跨段→聚合→合并→校准→报告）
+python scripts/run_pipeline.py --doc-id <doc_id> --output-dir <out> --phases 4,5,6,7,8
+
+# 只跑聚合层（批注+跨段已就绪）
+python scripts/run_pipeline.py --doc-id <doc_id> --output-dir <out> --phases 5
+
 # 断点续跑是默认行为（读 checkpoint 跳过已完成阶段/片段）；--force 强制重跑
 ```
+
+**Phase 2 需配置 LumberChunker API**：`SCENE_BOUNDARY_API_KEY`（+ 可选 `SCENE_BOUNDARY_BASE_URL` / `SCENE_BOUNDARY_MODEL`）。若已生成 `{doc_id}_scene_boundary.json`，可用 `--scene-boundary <file>` 直接走 reshape 重排（跳过边界判断调用）。
 
 ### 2.6 其他脚本
 
@@ -165,55 +181,42 @@ python scripts/run_pipeline.py --input <原文.txt> --doc-id <doc_id> --output-d
 | `collect_lexicon_candidates.py`（v3.2） | WikiSkill 经验回写：产物自由情感词 ≥3 次 → 候选（`--dir` / `--files`；`--sop` 输出 RUNBOOK 修复表行） |
 | `build_dlut_subset.py`（v3.3） | 仅维护者：本地 DLUT 全量 xlsx → 清洗子集 `references/lexicon-dlut-subset.json`（`--dlut --out`） |
 | `quality_gate.py`（v3.4） | **数据质量看门狗（Phase 0，粗切前必须跑）**：五维检测（中文占比/引号闭合/乱码/段落结构/重复性），产出 quality_report.json（pass/warn/fail + 修复建议）。`--input <txt|jsonl> --out <report.json>`；`--fail-on-error` CI 用 |
-| `quant_analyzer.py`（v3.4） | **计算文学分析（Phase 1.5，批注前）**：逐 segment 计算句长/TTR/词性/对话占比/标点/情感词频（DLUT 子集）/五感密度，产出 quant_metrics.jsonl。`--segments <segments.jsonl> --out <quant.jsonl>`；jieba 可选，缺失自动降级为 DLUT 最大正向匹配 |
-| `reshape_segments.py`（v3.5） | **精细化切分重排（Phase 1.25，可选）**：读粗切 segments + scene_boundary.json（Agent 场景边界判断）+ 原始文本 → final_segments.jsonl（场景级，scene_NNN 编号）+ 新旧 ID 映射表。`--segments --boundaries --original --doc-id --output-dir`；章节边界自动识别，无 boundary 文件时仅按章节合并 |
+| `quant_analyzer.py`（v3.4） | **计算文学分析（批注前辅助）**：逐 segment 计算句长/TTR/词性/对话占比/标点/情感词频（DLUT 子集）/五感密度，产出 quant_metrics.jsonl。`--segments <segments.jsonl> --out <quant.jsonl>`；jieba 可选，缺失自动降级为 DLUT 最大正向匹配 |
+| `reshape_segments.py`（v3.5） | **场景语义精确切分（Phase 2b，必须）**：读粗切 segments + scene_boundary.json（Agent 场景边界判断）+ 原始文本 → final_segments.jsonl（场景级，scene_NNN 编号）+ 新旧 ID 映射表。`--segments --boundaries --original --doc-id --output-dir`；章节边界自动识别，无 boundary 文件时仅按章节合并 |
 
-### 2.7 aggregation/ 聚合层 10 脚本（v2.9/v3.0/v3.7/v3.8，批注完成后运行）
+### 2.7 aggregation/ 聚合层 12 脚本（v2.9/v3.0/v3.7/v3.8；v3.17.0 升级为必须，位于 Phase 5）
 
-> 全链路 <2s/本，纯规则零依赖。Schema 真源：`references/aggregation-schema.md`。建议按 ①→⑩ 顺序跑；缺输入时各脚本自行报错，可逐脚本重跑（覆盖写，幂等）。
+> **v3.17.0 定位：必须阶段**，位于跨段分析（Phase 4）与合并（Phase 6）之间；产物全部进入 Phase 8 报告展示。全链路 <2s/本，纯规则零依赖。Schema 真源：`references/aggregation-schema.md`。建议按 ①→⑫ 顺序跑；缺输入时各脚本自行报错，可逐脚本重跑（覆盖写，幂等）。run_pipeline Phase 5 按此顺序自动全跑。
 
 | # | 脚本 | 必填参数 | 产出 |
 |:-:|------|---------|------|
 | ① | `entity_resolution.py` | `--segments --emotion --craft --structure --doc-id --output-dir` | `{doc}_entity_graph.json` |
-| ② | `scene_graph.py` | `--segments --structure --doc-id --output-dir --entity-graph` | `{doc}_scene_graph.json` |
-| ③ | `character_arcs.py` | `--segments --structure --emotion --entity-graph --doc-id --output-dir` | `{doc}_character_arcs.json` |
-| ④ | `story_type_inference.py` | `--segments --structure [--interpretation] [--emotion] --doc-id --output-dir` | `{doc}_story_metadata.json` |
-| ⑤ | `narrative_structure.py`（v3.7 新增） | `--structure --doc-id --output-dir` | `{doc}_narrative_structure.json`（弗雷塔格五幕+热奈特聚焦+叙事时间线+救猫咪节拍） |
-| ⑥ | `writing_techniques.py`（v3.8 新增） | `--structure --interpretation [--cross-segment] --doc-id --output-dir` | `{doc}_writing_techniques.json`（转场+悬念+蒙太奇+钩子） |
-| ⑦ | `causal_graph.py` | `--cross-segment --structure --doc-id --output-dir` | `{doc}_causal_graph.json` |
-| ⑧ | `object_chains.py` | `--craft --doc-id --output-dir` | `{doc}_object_chains.json` |
-| ⑨ | `story_graph.py` | `--aggregation-dir --doc-id --output-dir` | `{doc}_story_graph.json`（合并①-⑧） |
-| ⑩ | `adapters.py` | `--story-graph --doc-id --output-dir [--formats text2story,yarn,ncp]` | `{doc}_{text2story,yarn,ncp}.json` |
+| ② | `character_network.py` | `--entity-graph --doc-id --output-dir [--emotion] [--craft]` | `{doc}_character_network.json` |
+| ③ | `scene_graph.py` | `--segments --structure --doc-id --output-dir --entity-graph` | `{doc}_scene_graph.json` |
+| ④ | `character_arcs.py` | `--segments --structure --emotion --entity-graph --doc-id --output-dir` | `{doc}_character_arcs.json` |
+| ⑤ | `story_type_inference.py` | `--segments --structure [--interpretation] [--emotion] --doc-id --output-dir` | `{doc}_story_metadata.json` |
+| ⑥ | `narrative_structure.py` | `--structure --doc-id --output-dir` | `{doc}_narrative_structure.json`（弗雷塔格五幕+热奈特聚焦+叙事时间线+救猫咪节拍） |
+| ⑦ | `writing_techniques.py` | `--structure --interpretation [--cross-segment] --doc-id --output-dir` | `{doc}_writing_techniques.json`（转场+悬念+蒙太奇+钩子） |
+| ⑧ | `causal_graph.py` | `--cross-segment --structure --doc-id --output-dir` | `{doc}_causal_graph.json` |
+| ⑨ | `object_chains.py` | `--craft --doc-id --output-dir [--include-all-types]` | `{doc}_object_chains.json` |
+| ⑩ | `character_biographies.py` | `--segments --structure --interpretation --craft --emotion --cross-segment --entity-graph --character-arcs --character-network --narrative-structure --doc-id --output-dir` | `{doc}_character_biographies.json` |
+| ⑪ | `story_graph.py` | `--aggregation-dir --doc-id --output-dir` | `{doc}_story_graph.json`（合并①-⑩） |
+| ⑫ | `adapters.py` | `--story-graph --doc-id --output-dir [--formats text2story,yarn,ncp]` | `{doc}_{text2story,yarn,ncp}.json` |
 
-**典型一条链**（moon 示例，`AGG=scripts/aggregation`）：
+**依赖顺序**：①→②（人物网络依赖实体图）→③④⑤⑥（依赖批注层+实体图）→⑦⑧⑨（依赖批注层+cross_segment）→⑩（依赖①-⑦ 产物）→⑪（依赖全部子图谱）→⑫（依赖故事图）。
+
+**典型一条链**（`AGG=scripts/aggregation`，全部命令见 SKILL.md §3.5）：
 
 ```bash
 python $AGG/entity_resolution.py --segments $OUT/${DOC}_segments.jsonl --doc-id $DOC \
     --output-dir $OUT/aggregation --emotion $OUT/${DOC}_emotion.jsonl \
     --craft $OUT/${DOC}_craft.jsonl --structure $OUT/${DOC}_structure.jsonl
-python $AGG/scene_graph.py --segments $OUT/${DOC}_segments.jsonl --structure $OUT/${DOC}_structure.jsonl \
-    --doc-id $DOC --output-dir $OUT/aggregation --entity-graph $OUT/aggregation/${DOC}_entity_graph.json
-python $AGG/character_arcs.py --segments $OUT/${DOC}_segments.jsonl --structure $OUT/${DOC}_structure.jsonl \
-    --emotion $OUT/${DOC}_emotion.jsonl --entity-graph $OUT/aggregation/${DOC}_entity_graph.json \
-    --doc-id $DOC --output-dir $OUT/aggregation
-python $AGG/story_type_inference.py --segments $OUT/${DOC}_segments.jsonl --structure $OUT/${DOC}_structure.jsonl \
-    --interpretation $OUT/${DOC}_interpretation.jsonl --emotion $OUT/${DOC}_emotion.jsonl \
-    --doc-id $DOC --output-dir $OUT/aggregation
-python $AGG/narrative_structure.py --structure $OUT/${DOC}_structure.jsonl \
-    --doc-id $DOC --output-dir $OUT/aggregation
-python $AGG/writing_techniques.py --structure $OUT/${DOC}_structure.jsonl \
-    --interpretation $OUT/${DOC}_interpretation.jsonl \
-    --cross-segment $OUT/${DOC}_cross_segment.jsonl \
-    --doc-id $DOC --output-dir $OUT/aggregation
-python $AGG/causal_graph.py --cross-segment $OUT/${DOC}_cross_segment.jsonl --structure $OUT/${DOC}_structure.jsonl \
-    --doc-id $DOC --output-dir $OUT/aggregation
-python $AGG/object_chains.py --craft $OUT/${DOC}_craft.jsonl --doc-id $DOC --output-dir $OUT/aggregation
-python $AGG/story_graph.py --aggregation-dir $OUT/aggregation --doc-id $DOC --output-dir $OUT/aggregation
+# ... ②-⑫ 按 §3.5 顺序执行（或直接用 run_pipeline --phases 5）
 python $AGG/adapters.py --story-graph $OUT/aggregation/${DOC}_story_graph.json \
-    --doc-id $DOC --output-dir $OUT/aggregation/adapters
+    --doc-id $DOC --output-dir $OUT/aggregation
 ```
 
-**常见坑**：① ⑦缺 `--cross-segment`（需先跑 Phase 3）会直接报错退出；② ⑩的 `participants` 为空≠bug——frontmatter/过渡段无角色出场是合法数据特性（占全部场景 ≤10%）；③ 聚合产物含 `generated_at` 时间戳，字节级对比产物时先排除该字段；④ ⑤narrative_structure 对旧产物（无 v3.6 新字段 _time_type/_narrative_level/_narrator_identity）自动降级为从 D08.time 文本关键词推断，输出中标注 derivation_method；⑤ ⑥writing_techniques 的转场/蒙太奇/场景钩子使用提取的地点关键词（extract_location_keyword）而非完整 D08.space 文本，避免文本微变化导致虚高；时间转场阈值为年份差≥2 或季节变化；⑥writing_techniques 为规则粗筛，后续可用 LLM 精排（同因果链架构）。
+**常见坑**：① ⑧缺 `--cross-segment`（需先跑 Phase 4）会直接报错退出；② ⑩的 `participants` 为空≠bug——frontmatter/过渡段无角色出场是合法数据特性（占全部场景 ≤10%）；③ 聚合产物含 `generated_at` 时间戳，字节级对比产物时先排除该字段；④ ⑥narrative_structure 对旧产物自动降级为从 D08.time 文本关键词推断，输出中标注 derivation_method；⑤ ⑦writing_techniques 的转场/蒙太奇/场景钩子使用提取的地点关键词而非完整 D08.space 文本；时间转场阈值为年份差≥2 或季节变化；⑥ ⑦⑧ 为规则粗筛，后续可自行叠加外部 LLM 后处理（不属于本 skill 流程）。
 
 ### 2.8 数据契约与元数据说明（v3.15.0 新增，T-131）
 
@@ -312,11 +315,13 @@ python $AGG/adapters.py --story-graph $OUT/aggregation/${DOC}_story_graph.json \
 | `{doc}_structure.jsonl` | Phase 2 | L1 结构层批注 |
 | `{doc}_interpretation.jsonl` | Phase 2 | L2 阐释层批注 |
 | `{doc}_craft.jsonl` | Phase 2 | L3 文笔层批注 |
-| `{doc}_emotion.jsonl` | Phase 2.5 | L2.5 情感层批注（P4 触发式） |
+| `{doc}_emotion.jsonl` | Phase 3 | L2.5 情感层批注（P4 触发式，属于逐段批注） |
 | `{doc}_cross_segment.jsonl` | Phase 3 | L4 跨段关系 |
 | `{doc}_merged.jsonl` | Phase 4 | 四层合并 + cross_refs 投影 |
 | `{doc}_report.md` / `.html` | Phase 5 | 最终报告 |
-| `{doc}_segment_plan.json` | select_segments（仅显式降级） | 段采样分层计划（deep/light/skip） |
+| `{doc}_scene_boundary.json` | Phase 2a | 场景边界判断结果（LumberChunker） |
+| `{doc}_final_segments.jsonl` | Phase 2b | 场景级精确切分 segments（后续 Phase 3-8 使用） |
+| `{doc}_segment_id_mapping.json` | Phase 2b | 新旧段 ID 映射表 |
 
 ---
 
