@@ -562,6 +562,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 2. 子串验证（归一化后）：`" ".join(quote.split())` 必须为 `" ".join(text_span.text.split())` 的子串，未命中 = error。D19.key_phrases **每一项**同规则。
 3. span 位置断言：`0 ≤ start < end ≤ len(text)`；切片相似度 ≥95% 通过 / 85-95% warning / <85% error。
 4. **span 自动修复**：annotate_segment 校验失败时 craft 条目 span 自动用 `text.find` 回算重试（≤3 轮）；存量文件回补用 `scripts/fill_spans.py`。
+5. **引文预检（注入前自检）**：`python scripts/check_quotes.py --segments <segments.jsonl> <批注文件>`（支持 --layer-type/--fuzzy/--fail-fast）——批量注入前全量核对 D06/D19/craft 引文子串，失败直接打印「段 + 缺失短语」，避免注入时才发现整批被拒（v3.16.0 T-143 文档补全）。
 
 ### 4.7 置信度 + status 自动推导
 

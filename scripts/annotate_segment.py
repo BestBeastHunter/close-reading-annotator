@@ -581,6 +581,9 @@ def main() -> int:
                 except SystemExit:
                     failed.append((sid, layer, "外部 LLM 调用失败（详见上方）"))
                     continue
+                # v3.16.0 T-143：与 --input-json / 手动模式对齐——补齐 text_span/segment_id/schema_version，
+                # 防止第三方 wrapper 未按协议输出 text_span 时引文校验全挂
+                _pad_metadata(obj, seg)
                 ok, msg = _commit_after_validate(seg, layer, obj, out_dir, args, base_dir)
                 if ok:
                     print(f"✅ {sid} {layer} 落盘")

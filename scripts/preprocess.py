@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 scripts/preprocess.py — 输入预处理脚本 v2.6.0
@@ -574,7 +574,7 @@ def main() -> int:
                         "approx_tokens": estimate_tokens(cur_text),
                         "context_prev": "",
                         "context_next": "",
-                        "is_polluted": False,
+                        "is_polluted": True,
                         "pollution_warning": "v3.8.5兜底切分(章节边界识别不足)",
                     })
                     seg_counter += 1
@@ -594,7 +594,7 @@ def main() -> int:
                     "approx_tokens": estimate_tokens(cur_text),
                     "context_prev": "",
                     "context_next": "",
-                    "is_polluted": False,
+                    "is_polluted": True,
                     "pollution_warning": "v3.8.5兜底切分(章节边界识别不足)",
                 })
             all_segments = fallback_segs

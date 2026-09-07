@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 scripts/cross_segment.py — 二阶段跨段分析 v2.6.0（架构可运行版）
@@ -151,6 +151,7 @@ def main() -> int:
     args = p.parse_args()
 
     segs = _load_jsonl(Path(args.segments))
+    base_dir = Path(args.segments).parent  # v3.16.0 T-143：增强信号按输入产物同目录定位
     structs = _index_by_segment_id(_load_jsonl(Path(args.structure)))
     interps = _index_by_segment_id(
         _load_jsonl(Path(args.interpretation)) if args.interpretation else []
@@ -178,7 +179,9 @@ def main() -> int:
                         continue
                     old = json.loads(line)
                     for r in old.get("cross_refs", []):
-                        if r.get("_source") != "rule":
+                        # v3.16.0 T-143：rule_enhanced 也是规则候选（应被重跑覆盖），
+                        # 仅保留人工/LLM 核验条目（_source 为空或非 rule 前缀）
+                        if not (r.get("_source") or "").startswith("rule"):
                             preserved.append(r)
             if preserved:
                 print(f"   🔒 保留人工/LLM 核验关系 {len(preserved)} 条（规则重跑不覆盖）")
@@ -266,6 +269,95 @@ def main() -> int:
                         f"主题标签「{theme}」重复出现"
                     )
 
+    # ------------------------------------------------------------------
+    # v3.9.0 T-078 + v3.16.0 T-143 修复：增强信号规则
+    # （v3.8.7/v3.9.0 旧实现把增强块放在 final_refs 去重与写盘之后，
+    #   追加进 refs 无下游消费者 → 增强信号永不落盘；此处移到去重之前。）
+    # 1. 加载 emotion/craft 数据（兼容 layers.<层> 嵌套与顶层）
+    # 2. 提取 D19.target 情感对象 / D15 意象的多段复用 → refs.append
+    # 3. 增强候选 _source='rule_enhanced'，参与同一去重流程
+    # ------------------------------------------------------------------
+    try:
+        emotion_rows = []
+        emotion_path = base_dir / f"{args.doc_id}_emotion.jsonl"
+        if emotion_path.is_file():
+            with emotion_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            emotion_rows.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            pass
+
+        craft_rows = []
+        # v3.16.0 T-143：优先用 --craft 显式传入；否则按输入产物同目录约定定位
+        craft_path = Path(args.craft) if args.craft else (base_dir / f"{args.doc_id}_craft.jsonl")
+        if craft_path.is_file():
+            with craft_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            craft_rows.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            pass
+
+        # D19.target：同角色在多段作为情感对象出现 → 呼应候选
+        # v3.16.0 T-143：target 真实形状为 dict（{name, entity_id, relation}），且位于 emotion 顶层
+        # （不在 primary 内）；兼容 str 旧格式与 D19_emotion_analysis 嵌套格式
+        if emotion_rows:
+            target_segments = {}
+            for er in emotion_rows:
+                d19 = (er.get("layers") or {}).get("emotion") or {}
+                target = d19.get("target")
+                if target is None:
+                    # 嵌套格式：D19_emotion_analysis 包装
+                    nested = d19.get("D19_emotion_analysis")
+                    if isinstance(nested, dict):
+                        target = nested.get("target")
+                if isinstance(target, dict):
+                    target = target.get("name")
+                if target and isinstance(target, str) and len(target) <= 20:
+                    target_segments.setdefault(target, []).append(er.get("segment_id"))
+            for target, seg_ids in target_segments.items():
+                if len(seg_ids) >= 2:
+                    for i in range(len(seg_ids) - 1):
+                        refs.append({
+                            "ref_id": "cf_d19_%04d" % len(refs),
+                            "relation_type": "呼应",
+                            "_source": "rule_enhanced",
+                            "source": {"segment_id": seg_ids[i], "chapter": None, "anchor_text": "情感对象: %s" % target, "span": None},
+                            "target": {"segment_id": seg_ids[i+1], "chapter": None, "anchor_text": "情感对象: %s" % target, "span": None},
+                            "confidence": 0.5,
+                            "note": "D19.target 情感对象复用（%s 在多段出现），规则候选，建议 LLM 二分类精排" % target,
+                        })
+
+        # D15：同意象在多段出现 → 呼应候选（兼容 layers.craft 和顶层 craft）
+        if craft_rows:
+            imagery_segments = {}
+            for cr in craft_rows:
+                craft_data = (cr.get("layers") or {}).get("craft") or cr.get("craft") or {}
+                for item in craft_data.get("D15_imagery", []) or []:
+                    if isinstance(item, dict):
+                        text = item.get("text", "")
+                        if text and len(text) <= 30:
+                            imagery_segments.setdefault(text, []).append(cr.get("segment_id"))
+            for imagery, seg_ids in imagery_segments.items():
+                if len(seg_ids) >= 2:
+                    for i in range(len(seg_ids) - 1):
+                        refs.append({
+                            "ref_id": "cf_d15_%04d" % len(refs),
+                            "relation_type": "呼应",
+                            "_source": "rule_enhanced",
+                            "source": {"segment_id": seg_ids[i], "chapter": None, "anchor_text": "意象: %s" % imagery, "span": None},
+                            "target": {"segment_id": seg_ids[i+1], "chapter": None, "anchor_text": "意象: %s" % imagery, "span": None},
+                            "confidence": 0.5,
+                            "note": "D15 意象复用（%s 在多段出现），规则候选，建议 LLM 二分类精排" % imagery,
+                        })
+    except Exception as e:
+        print("[cross_segment] ⚠️ 增强信号规则执行失败（不影响主流程）: %s" % e)
+
     # 去重（同 source_idx/target_idx/type 只保留一条）
     seen: set[tuple[int, int, str]] = set()
     dedup: list[dict] = []
@@ -309,81 +401,6 @@ def main() -> int:
         },
     }
 
-    # v3.9.0 T-078：增强信号规则（修复 v3.8.7 的三重逻辑错误）
-    # 1. 正确读取 emotion/craft 数据
-    # 2. 追加到 refs（在 final_refs 去重之前）
-    # 3. 兼容 layers.emotion / layers.craft 格式
-    try:
-        emotion_rows = []
-        emotion_path = out_path.parent / f"{args.doc_id}_emotion.jsonl"
-        if emotion_path.is_file():
-            with emotion_path.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            emotion_rows.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            pass
-
-        craft_rows = []
-        craft_path = out_path.parent / f"{args.doc_id}_craft.jsonl"
-        if craft_path.is_file():
-            with craft_path.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            craft_rows.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            pass
-
-        # D19.target：同角色在多段作为情感对象出现 → 呼应候选
-        if emotion_rows:
-            target_segments = {}
-            for er in emotion_rows:
-                d19 = (er.get("layers") or {}).get("emotion") or {}
-                primary = d19.get("D19_emotion_analysis") or d19.get("primary") or {}
-                target = primary.get("target") if isinstance(primary, dict) else None
-                if target and isinstance(target, str) and len(target) <= 20:
-                    target_segments.setdefault(target, []).append(er.get("segment_id"))
-            for target, seg_ids in target_segments.items():
-                if len(seg_ids) >= 2:
-                    for i in range(len(seg_ids) - 1):
-                        refs.append({
-                            "ref_id": "cf_d19_%04d" % len(refs),
-                            "relation_type": "呼应",
-                            "_source": "rule_enhanced",
-                            "source": {"segment_id": seg_ids[i], "chapter": None, "anchor_text": "情感对象: %s" % target, "span": None},
-                            "target": {"segment_id": seg_ids[i+1], "chapter": None, "anchor_text": "情感对象: %s" % target, "span": None},
-                            "confidence": 0.5,
-                            "note": "D19.target 情感对象复用（%s 在多段出现），规则候选，建议 LLM 二分类精排" % target,
-                        })
-
-        # D15：同意象在多段出现 → 呼应候选（兼容 layers.craft 和顶层 craft）
-        if craft_rows:
-            imagery_segments = {}
-            for cr in craft_rows:
-                craft_data = (cr.get("layers") or {}).get("craft") or cr.get("craft") or {}
-                for item in craft_data.get("D15_imagery", []) or []:
-                    if isinstance(item, dict):
-                        text = item.get("text", "")
-                        if text and len(text) <= 30:
-                            imagery_segments.setdefault(text, []).append(cr.get("segment_id"))
-            for imagery, seg_ids in imagery_segments.items():
-                if len(seg_ids) >= 2:
-                    for i in range(len(seg_ids) - 1):
-                        refs.append({
-                            "ref_id": "cf_d15_%04d" % len(refs),
-                            "relation_type": "呼应",
-                            "_source": "rule_enhanced",
-                            "source": {"segment_id": seg_ids[i], "chapter": None, "anchor_text": "意象: %s" % imagery, "span": None},
-                            "target": {"segment_id": seg_ids[i+1], "chapter": None, "anchor_text": "意象: %s" % imagery, "span": None},
-                            "confidence": 0.5,
-                            "note": "D15 意象复用（%s 在多段出现），规则候选，建议 LLM 二分类精排" % imagery,
-                        })
-    except Exception as e:
-        print("[cross_segment] ⚠️ 增强信号规则执行失败（不影响主流程）: %s" % e)
 
     with out_path.open("w", encoding="utf-8") as f:
         f.write(json.dumps(result, ensure_ascii=False) + "\n")

@@ -185,11 +185,19 @@ def build_segment_info_index(
             emotion = row.get("layers", {}).get("emotion", {})
             if not emotion:
                 emotion = row.get("emotion", {})
-            d19 = emotion.get("D19_emotion_analysis") or emotion.get("D19") or {}
+            # v3.16.0 T-143：真实 emotion 行是直接格式（primary/secondary/target/...），
+            # 无 D19_emotion_analysis 包装；target 是 dict（{name, entity_id, relation}）
+            d19 = emotion.get("D19_emotion_analysis") or emotion.get("D19") or emotion
             if isinstance(d19, dict):
-                info_index[seg_id]["emotion_primary"] = d19.get("primary", {}).get("emotion")
+                primary = d19.get("primary")
+                if isinstance(primary, dict):
+                    info_index[seg_id]["emotion_primary"] = primary.get("emotion")
                 targets = d19.get("target") or []
-                if isinstance(targets, list):
+                if isinstance(targets, dict):
+                    tgt_name = targets.get("name")
+                    if tgt_name:
+                        info_index[seg_id]["emotion_targets"] = [tgt_name]
+                elif isinstance(targets, list):
                     info_index[seg_id]["emotion_targets"] = [t.get("name") for t in targets if isinstance(t, dict) and t.get("name")]
 
     # 从 craft 提取 D18 人物
