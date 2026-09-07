@@ -1,4 +1,4 @@
-# references/aggregation-schema.md — 全局聚合层产物 Schema 定义 v3.5.0
+﻿# references/aggregation-schema.md — 全局聚合层产物 Schema 定义 v3.6.0
 
 > **本文件是聚合层产物的唯一真源**（对应审计 P2-12 / 决策 22）。
 > 批注四层 Schema 的真源是 `references/schema.md`（v2.10.0）；聚合层（v2.9/v3.0/v3.7）产物 Schema 以本文件为准。
@@ -9,10 +9,11 @@
 
 ## 〇、版本与命名约定
 
-- 聚合产物文件名：`{doc_id}_{entity_graph|scene_graph|character_arcs|story_metadata|narrative_structure|writing_techniques|causal_graph|object_chains|story_graph}.json`，适配器产物 `{doc_id}_{text2story|yarn|ncp}.json`。
+- 聚合产物文件名：`{doc_id}_{entity_graph|scene_graph|character_arcs|story_metadata|narrative_structure|writing_techniques|causal_graph|object_chains|event_sequence|story_graph}.json`，适配器产物 `{doc_id}_{text2story|yarn|ncp}.json`。
 - 所有产物顶层含 `doc_id` / `schema_version` / `generated_at`（ISO8601）。
 - 确定性纪律（v3.0.1）：任何集合转列表必须 `sorted(set(...))`；平票取先出现者——禁止依赖 `set()` 迭代顺序（PYTHONHASHSEED 漂移，审计 P2-3）。
 - **v3.1.0 变更（ADR-014，T-036/T-037）**：新增 `narrative_structure.json`（叙事结构分析，v3.7）和 `writing_techniques.json`（叙事技法分析，v3.8）两个产物。其余 8 个聚合产物 schema 不变（3.0.0）。
+- **v3.6.0 变更（v3.18.0，事件序列产物）**：新增 `event_sequence.json`（全书事件表，event_sequence.py）——以运行时便签本 scratchpad.events 为主序，对齐因果图（hierarchy/salience/causal_structure/因果边）、场景图（scene_id）、结构层（D01/D08）、实体图（在场人物）；含按段序事件列表 + statistics（核心/卫星/转折统计 + top 显赫度）。其余聚合产物 schema 不变。
 - **v3.5.0 变更（ADR-029，T-111/T-112）**：`causal_graph.json` 新增 event_hierarchy（核心/卫星事件+salience_score显赫度评分）、causal_structure（causal_type直接/间接/条件+is_turning_point）、event_attributes（时间/空间/情感/参与者/叙事功能/强度）；`character_arcs.json` 新增 character_type（扁平/圆形/尖形+complexity_score复杂度评分）、character_depth（不可还原特质+文本空白数）、agency_curve（能动性曲线+agency_distribution+agency_trend）、density_distribution（出现密度分布+peak_interval+peak_density）、dialogue_dominance（对话主导权+dominance_ratio+dominance_level+言说动词分布）。其余聚合产物 schema 不变。
 
 ---
@@ -380,3 +381,107 @@
 ---
 
 *聚合层 Schema 唯一真源。改字段先改本文件，再同步 `scripts/aggregation/*.py` 与审计验收脚本。*
+
+
+---
+
+## 十一、event_sequence.json（全书事件序列，v3.6.0 新增 / event_sequence.py）
+
+> **定位**：把散落在批注层与 scratchpad 的事件碎片按段序组装成**全书事件表**——每事件含叙事层级（核心/卫星）、显赫度、因果边、场景归属、参与者与在场人物，供报告"事件序列"章节与下游消费。主数据源为运行时便签本 `{doc_id}_scratchpad.json` 的 events（真实事件描述/参与者/类型/状态）；scratchpad 缺失或为空时降级用 `causal_graph.json` 的段级事件节点。
+
+### 11.1 顶层结构
+
+```json
+{
+  "doc_id": "my_novel_01",
+  "schema_version": "3.6.0",
+  "generated_at": "2026-09-07T10:00:00+08:00",
+  "total_events": 19,
+  "event_sequence": [ { "event_id": "evt_001", "..." : "..." } ],
+  "statistics": { "...": "..." },
+  "_metadata": { "skill_version": "3.18.0", "event_source": "scratchpad" }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `doc_id` | string | 文档 ID |
+| `schema_version` | string | `3.6.0` |
+| `generated_at` | string | ISO8601 生成时间 |
+| `total_events` | int | 事件总数（= event_sequence 长度） |
+| `event_sequence` | array | 事件列表，按 `segment_id` 段序排列 |
+| `statistics` | object | 聚合统计（见 11.3） |
+| `_metadata` | object | 生成元信息：`skill_version` / `event_source`（`scratchpad` 或 `causal_graph_nodes_fallback`） |
+
+### 11.2 单个事件（event_sequence[] 元素）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `event_id` | string | 事件 ID（来自 scratchpad：`evt_001` 递增；降级模式：`evt_<segment>_<idx>`） |
+| `segment_id` | string | 事件所在段 ID（场景级 `{doc_id}_scene_NNN` 或段级 `{doc_id}_seg_NNNN`） |
+| `description` | string | 一句话事件描述（scratchpad 原文；降级模式由段内事件节点拼装） |
+| `event_type` | string | 事件类型（scratchpad 记录；降级模式从 D01 映射） |
+| `status` | string | `open`（未闭合）/ `closed`（已闭合），来自 scratchpad |
+| `d01_function` | string | 叙事功能（优先 structure 层 D01；回落 causal_graph 节点 d01_function） |
+| `time` | string / null | 事件时间（structure 层 D08.time） |
+| `space` | string / null | 事件空间（structure 层 D08.space） |
+| `scene_id` | string / null | 场景归属（scene_graph 反查：事件段所属场景） |
+| `participants` | array | 参与者规范名列表（scratchpad involved_characters 经 entity_graph 别名→规范名归一） |
+| `present_characters` | array | 段内在场人物规范名（entity_graph 的 segment_ids 反推，补 scratchpad 参与者覆盖不足） |
+| `hierarchy` | object | 叙事层级（见 11.2.1；causal_graph 对齐） |
+| `causal` | object | 因果结构（见 11.2.2；causal_graph 对齐） |
+| `source` | string | 数据来源：`scratchpad` / `causal_graph_nodes_fallback` |
+
+#### 11.2.1 hierarchy（叙事层级）
+
+```json
+"hierarchy": {
+  "level": "卫星事件",
+  "salience_score": 0.42,
+  "salience_breakdown": { "d01_weight": 0.2, "length_weight": 0.15, "position_weight": 0.07 }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `level` | string | `核心事件` / `卫星事件`（causal_graph event_hierarchy.level 对齐） |
+| `salience_score` | float | 事件显赫度 0-1（causal_graph event_hierarchy.salience_score 对齐） |
+| `salience_breakdown` | object | 显赫度分项（可选）：d01_weight / length_weight / position_weight |
+
+#### 11.2.2 causal（因果结构）
+
+```json
+"causal": {
+  "causal_type": "直接因果",
+  "is_turning_point": true,
+  "in_edges": ["evt_001"],
+  "out_edges": ["evt_005"]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `causal_type` | string / null | 因果类型：`直接因果` / `间接因果` / `条件因果`（causal_graph 对齐） |
+| `is_turning_point` | bool / null | 是否转折事件（causal_graph is_turning_point 对齐） |
+| `in_edges` | array | 前驱事件 ID 列表（causal_graph 因果边入边） |
+| `out_edges` | array | 后继事件 ID 列表（causal_graph 因果边出边） |
+
+### 11.3 statistics（统计）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `core_event_count` | int | 核心事件数（hierarchy.level == 核心事件） |
+| `satellite_event_count` | int | 卫星事件数 |
+| `hierarchy_levels` | object | 各层级计数（如 `{"卫星事件": 11}`） |
+| `turning_point_count` | int | 转折事件数（causal.is_turning_point == true） |
+| `by_event_type` | object | 按事件类型计数 |
+| `by_d01_function` | object | 按叙事功能计数 |
+| `top_salience_events` | array | 显赫度 Top 10：`{event_id, description, segment_id, salience_score}` |
+
+### 11.4 与上下游的关系
+
+- 上游：scratchpad.events（主源）、structure 层（D01/D08）、causal_graph（层级/显赫度/因果边）、scene_graph（场景归属）、entity_graph（参与者归一 + 在场人物）。
+- 下游：render_report 报告"事件序列"章节（MD `### 📅 事件序列` / HTML `h3 id="agg-events"`，前 15-20 条 + 统计）；story_graph 合并。
+- 确定性纪律：participants / present_characters / in_edges / out_edges 均 `sorted(set(...))`；top_salience_events 按 salience_score 降序，平票按 event_id 字典序。
+
+---

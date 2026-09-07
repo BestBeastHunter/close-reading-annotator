@@ -1,21 +1,21 @@
 ﻿---
 name: close-reading-annotator
-version: 3.17.1
+version: 3.18.0
 description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言、craft层自动修复(v3.8.1)、三项校准功能(v3.8.2：quality_score/confidence/DLUT交叉验证)。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v3.17.1
+# 四层精读批注 Skill v3.18.0
 
 对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
 **核心原则**：每段每层独立落盘 → 断点续跑 → Layer 4 二阶段执行 → 四层合并输出 → 聚合层拼图出全局叙事结构。
 
 > **版本声明（决策 22：三版本域解耦）**：
-> - **skill version** = `3.17.1`（本文件 frontmatter = README = RUNBOOK）。最近变更：v3.17.1 Phase 2a 口径明确——场景边界判断以 **Agent prompt 判断为主流程**（无需任何外部 API key），wrapper 降级为命令行自动化替代（非 Agent 环境用）。同步：SKILL.md §3.2 / run_pipeline 报错指引 / README / RUNBOOK。上一版本 v3.17.0：流程架构重构（Owner 指令：无任何可选步骤、全部必须、连续编号）——①run_pipeline 重构为连续 Phase 1–8：质量门+粗切→LumberChunker 精确切分（必须）→逐段批注（四层全量）→跨段→聚合层（12 脚本全跑，修复 --aggregation 死代码）→合并→校准（移到报告前）→报告（最后一步）；②聚合层由"可选但推荐"升级为必须，report 展示全部 12 模块（补 story_graph/adapters 渲染）；③Phase 3.5 LLM 精排（可选）移除、段采样分层从工作流移除（--plan 参数删除）、全量深度为唯一正式流程；④run_pipeline 集成质量门为 Phase 1a 硬门槛。上一版本 v3.16.4：《发条橙》产物审查修复轮（7 项）。**完整版本历史见 `references/version-history.md` 与文末「版本历史」表。**
+> - **skill version** = `3.18.0`（本文件 frontmatter = README = RUNBOOK）。最近变更：v3.18.0 增强模块接入轮——①**计算文学模块接入正式流程**（Phase 2c 必须）：LumberChunker 重排（2b）产出 final_segments 后，run_pipeline 自动调 quant_analyzer.py 计算逐段量化指标（句长/TTR/词性/对话占比/标点/情感词频/五感密度）产出 quant_metrics.jsonl，Phase 3 批注须参考本段量化指标（设计依据：Backgrounds 计算文学分析模块.md——重排后、批注前、逐段独立、作为 LLM 批注硬证据）；②**事件分析补独立事件序列产物**（aggregation schema 3.6.0）：新脚本 scripts/aggregation/event_sequence.py 以运行时便签本 events 为主序（真实事件描述/参与者/类型/状态），对齐因果图（层级/显赫度/因果边）、场景图（场景归属）、结构层（D01/D08）、实体图（在场人物），输出 {doc_id}_event_sequence.json（按段序 + 核心/卫星/转折统计 + top 显赫度）；聚合层 12 脚本 → 13，报告新增事件序列章节（MD/HTML）；③README/RUNBOOK/aggregation-schema/version-history 同步。上一版本 v3.17.1：Phase 2a 口径明确——场景边界判断以 **Agent prompt 判断为主流程**（无需任何外部 API key），wrapper 降级为命令行自动化替代（非 Agent 环境用）。上一版本 v3.17.0：流程架构重构（Owner 指令：无任何可选步骤、全部必须、连续编号）——①run_pipeline 重构为连续 Phase 1–8：质量门+粗切→LumberChunker 精确切分（必须）→逐段批注（四层全量）→跨段→聚合层（12 脚本全跑，修复 --aggregation 死代码）→合并→校准（移到报告前）→报告（最后一步）；②聚合层由"可选但推荐"升级为必须，report 展示全部 12 模块（补 story_graph/adapters 渲染）；③Phase 3.5 LLM 精排（可选）移除、段采样分层从工作流移除（--plan 参数删除）、全量深度为唯一正式流程；④run_pipeline 集成质量门为 Phase 1a 硬门槛。上一版本 v3.16.4：《发条橙》产物审查修复轮（7 项）。**完整版本历史见 `references/version-history.md` 与文末「版本历史」表。**
 > - **annotation schema_version** = `2.10.0`（真源 `references/schema.md` §一 = 批注 JSON `schema_version` = annotate_segment.py / examples/llm_wrapper.py）。v2.10.0 新增 5 个可选字段（D07._narrator_identity / D08._time_type / D08._narrative_level / D06._techniques / D12_narrative_mode），全部允许 null，旧产物零迁移。
-> - **aggregation schema_version** = `3.5.0`（真源 `references/aggregation-schema.md` = `scripts/aggregation/*.py`）。变更历史见文末「版本历史」表。
+> - **aggregation schema_version** = `3.6.0`（真源 `references/aggregation-schema.md` = `scripts/aggregation/*.py`）。v3.6.0 新增 event_sequence.json 产物（事件序列）。变更历史见文末「版本历史」表。
 > - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0 / 2.8.0 / 2.9.0 / 2.10.0`（旧产物版本分支豁免，不迁移；v2.10.0 新增可选字段缺失时视为 null 放行）。
 > - **枚举真源**：批注层 `references/schema.md`；聚合层 `references/aggregation-schema.md`（本文件速览 / validate_output.py / templates 均须同步）。**唯一例外**：D19 `emotion` 枚举（50 词）真源为 `references/emotion-lexicon.md`（决策 17 特批）。词表演化映射参考：`references/emotion-taxonomy.md`（DLUT 21 小类三级映射，ADR-013）。
 
@@ -207,11 +207,21 @@ python scripts/reshape_segments.py \
 - 场景级 segment 是"完整场景段落"但不一定是"语义原子"（场景内可有多个叙事单元，靠 Phase 3 LLM 自己识别）
 - 新旧 ID 映射保证下游可追溯（批注产物中的 segment_id 可用映射表回溯到原始粗切段）
 
-**Phase 3 使用重排结果**：将 `annotate_segment.py` 的 `--segments` 参数指向 `{doc_id}_final_segments.jsonl` 即可（run_pipeline 自动切换）。
+**Phase 2c：计算文学分析（纯脚本 quant_analyzer.py，必须，v3.18.0 接入）**
+
+```bash
+python scripts/quant_analyzer.py --segments <out>/{doc_id}_final_segments.jsonl --out <out>/{doc_id}_quant_metrics.jsonl
+```
+
+> **定位（必须步骤）**：为每个场景级 segment 计算量化指标——句长/词汇丰富度（TTR）/词性占比/对话占比/标点密度/情感词频（DLUT 子集）/五感密度，产出 `{doc_id}_quant_metrics.jsonl`（与 final_segments 逐段对齐）。**这些指标是 Phase 3 批注的量化硬证据**：节奏判断（D05）参考 avg_sentence_length/标点密度，文笔层（D13-D17）参考 TTR/词性占比，对话判断（D10）参考 dialogue_ratio，情感判断（D19）参考 emotion_scores。jieba 可选（缺失自动降级为 DLUT 最大正向匹配，产物 tokenizer 字段显式标记模式）。run_pipeline 在 Phase 2b 后自动执行，不允许跳过。
+
+**Phase 3 使用重排结果与量化证据**：将 `annotate_segment.py` 的 `--segments` 参数指向 `{doc_id}_final_segments.jsonl` 即可（run_pipeline 自动切换）；批注每一段前读取 `{doc_id}_quant_metrics.jsonl` 中对应 segment_id 的指标作为判断依据。
 
 ### 3.3 Phase 3：逐段批注（核心循环，四层全量 × 全部 segment）
 
 > **v3.17.0 纪律**：对全部 segment 执行全部四层（structure / interpretation / emotion / craft）批注，**无采样、无档级、无跳过**。P4 情感触发纪律见 §3.7。
+>
+> **v3.18.0 纪律**：批注每一段前必须读取 Phase 2c 产出的 `quant_metrics.jsonl` 中该段量化指标（句长/TTR/词性占比/对话占比/标点密度/情感词频/五感密度）作为判断的硬证据——D05 节奏参考句长与标点、D10 对话参考 dialogue_ratio、D13-D17 文笔参考 TTR 与词性、D19 情感参考 emotion_scores。
 
 **Runtime Scratchpad（运行时便签本，v3.13.0）**：Agent 在批注过程中自主维护的轻量级工作记忆区，提升指称一致性（见下文）。
 
@@ -290,7 +300,7 @@ python scripts/cross_segment.py --doc-id <doc_id> \
 
 ### 3.5 Phase 5：聚合层（必须，v3.17.0 升级）——批注 → 全局叙事结构
 
-> **定位（必须，不是可选）**：批注管"逐段信号"，聚合管"全书拼图"。聚合层把 L1-L4 批注（+D19/D15/D18 细粒度信号）组装成全局叙事图，**全部 12 个脚本必须按依赖顺序执行**，产物全部进入 Phase 8 报告展示。纯规则零第三方依赖，全链路 <2s/本。
+> **定位（必须，不是可选）**：批注管"逐段信号"，聚合管"全书拼图"。聚合层把 L1-L4 批注（+D19/D15/D18 细粒度信号）组装成全局叙事图，**全部 13 个脚本必须按依赖顺序执行**，产物全部进入 Phase 8 报告展示。纯规则零第三方依赖，全链路 <2s/本。
 
 ```bash
 AGG=scripts/aggregation
@@ -324,10 +334,17 @@ python $AGG/writing_techniques.py --structure <out>/{doc_id}_structure.jsonl \
 # ⑧ 因果链（cross_segment 关系 → CAUSE/ENABLE 边）
 python $AGG/causal_graph.py --cross-segment <out>/{doc_id}_cross_segment.jsonl --structure <out>/{doc_id}_structure.jsonl \
     --doc-id <doc_id> --output-dir <out>/aggregation
-# ⑨ 物件链（D15 意象聚类 → object_chains）
+# ⑨ 事件序列（scratchpad 事件 + 因果图/场景图/实体图对齐 → event_sequence.json，v3.18.0 新增）
+python $AGG/event_sequence.py --segments <out>/{doc_id}_segments.jsonl --structure <out>/{doc_id}_structure.jsonl \
+    --scratchpad <out>/{doc_id}_scratchpad.json \
+    --causal-graph <out>/aggregation/{doc_id}_causal_graph.json \
+    --scene-graph <out>/aggregation/{doc_id}_scene_graph.json \
+    --entity-graph <out>/aggregation/{doc_id}_entity_graph.json \
+    --doc-id <doc_id> --output-dir <out>/aggregation
+# ⑩ 物件链（D15 意象聚类 → object_chains）
 python $AGG/object_chains.py --craft <out>/{doc_id}_craft.jsonl --doc-id <doc_id> --output-dir <out>/aggregation \
     --include-all-types
-# ⑩ 人物传记（按人物聚合时间线/关键时刻/关系/情感弧/金句 → character_biographies）
+# ⑪ 人物传记（按人物聚合时间线/关键时刻/关系/情感弧/金句 → character_biographies）
 python $AGG/character_biographies.py --segments <out>/{doc_id}_segments.jsonl \
     --structure <out>/{doc_id}_structure.jsonl --interpretation <out>/{doc_id}_interpretation.jsonl \
     --craft <out>/{doc_id}_craft.jsonl --emotion <out>/{doc_id}_emotion.jsonl \
@@ -337,14 +354,14 @@ python $AGG/character_biographies.py --segments <out>/{doc_id}_segments.jsonl \
     --character-network <out>/aggregation/{doc_id}_character_network.json \
     --narrative-structure <out>/aggregation/{doc_id}_narrative_structure.json \
     --doc-id <doc_id> --output-dir <out>/aggregation
-# ⑪ 故事图合并（全子图谱 + story_metadata → story_graph.json）
+# ⑫ 故事图合并（全子图谱 + story_metadata → story_graph.json）
 python $AGG/story_graph.py --aggregation-dir <out>/aggregation --doc-id <doc_id> --output-dir <out>/aggregation
-# ⑫ 适配器（story_graph → text2story / YARN / NCP 三种叙事格式）
+# ⑬ 适配器（story_graph → text2story / YARN / NCP 三种叙事格式）
 python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.json \
     --doc-id <doc_id> --output-dir <out>/aggregation --formats text2story,yarn,ncp
 ```
 
-**产物依赖链**：①→②（人物网络依赖实体图）→③④⑤⑥（依赖批注层 + 实体图）→⑦⑧⑨（依赖批注层 + cross_segment）→⑩（依赖①-⑦ 产物）→⑪（依赖全部子图谱）→⑫（依赖故事图）。失败/缺输入时各脚本自行报错退出，可逐脚本重跑（覆盖写，幂等）。**run_pipeline Phase 5 按此顺序自动全跑。**
+**产物依赖链**：①→②（人物网络依赖实体图）→③④⑤⑥（依赖批注层 + 实体图）→⑦⑧（依赖批注层 + cross_segment）→⑨（事件序列，依赖因果图/场景图/实体图/scratchpad）→⑩（物件链，依赖 craft）→⑪（人物传记，依赖①-⑩ 产物）→⑫（故事图，依赖全部子图谱）→⑬（适配器，依赖故事图）。失败/缺输入时各脚本自行报错退出，可逐脚本重跑（覆盖写，幂等）。**run_pipeline Phase 5 按此顺序自动全跑。**
 
 **聚合层 Schema 唯一真源**：`references/aggregation-schema.md`（决策 22）。改字段先改该文件再改脚本。
 **v3.0.1 修复摘要**（决策 22）：adapters 字段名对齐上游真实字段、entity_resolution 输出 `segment_ids` 完整段集合、全脚本 `sorted(set(...))` 确定性、题材词表去书名化。
@@ -406,11 +423,11 @@ python scripts/run_pipeline.py --doc-id <doc_id> --input <raw.txt>
 
 ### 3.8 Phase 8：报告渲染（最后一步，必须）
 
-> **v3.17.0 纪律**：报告是**最后一步**——聚合层（Phase 5）与校准（Phase 7）必须在报告之前完成；报告展示**全部四层批注 + 跨段关系 + 聚合层 12 模块**。
+> **v3.17.0 纪律**：报告是**最后一步**——聚合层（Phase 5）与校准（Phase 7）必须在报告之前完成；报告展示**全部四层批注 + 跨段关系 + 聚合层 13 模块**。
 
 ```bash
 python scripts/render_report.py --doc-id <doc_id> --format md --agg-dir <out>/aggregation  # 或 html（默认）
-# 产出 {doc_id}_report.md/.html：结构全景 + L2/L3 摘要 + L4 关系清单 + 聚合分析（故事概览/叙事结构/实体图谱/场景图/角色弧线/人物网络/因果图/物件链/人物传记/叙事技法/故事图/适配器三格式）；零第三方依赖内联样式
+# 产出 {doc_id}_report.md/.html：结构全景 + L2/L3 摘要 + L4 关系清单 + 聚合分析（故事概览/叙事结构/实体图谱/场景图/角色弧线/人物网络/因果图/事件序列/物件链/人物传记/叙事技法/故事图/适配器三格式）；零第三方依赖内联样式
 ```
 
 ---
@@ -575,7 +592,7 @@ python scripts/render_report.py --doc-id <doc_id> --format md --agg-dir <out>/ag
 |------|------|------|
 | **Agent 最小操作契约（CLI 速查 + 校验错误修复表）** | `docs/RUNBOOK.md` | 每个新运行者（尤其 Agent）开始前必读；比本文件更短 |
 | **四层 Schema 完整定义（唯一真源）** | `references/schema.md` | 写 D01/D04/D07/D10/D11/关系类型 等不确定时 |
-| **聚合层 Schema 完整定义（唯一真源）** | `references/aggregation-schema.md` | 跑/改 `scripts/aggregation/` 10 脚本或消费聚合产物前 |
+| **聚合层 Schema 完整定义（唯一真源）** | `references/aggregation-schema.md` | 跑/改 `scripts/aggregation/` 13 脚本或消费聚合产物前 |
 | **Few-shot 完整批注示例** | `references/annotation-examples.md` | 开始批注前看 1–2 条找感觉 |
 | **情绪校准锚点完整表** | `references/emotion-anchors.md` | 情绪强度犹豫时 |
 | **D19 情感词表（50 词，枚举真源）** | `references/emotion-lexicon.md` | 跑 P4/D19 前必读 |
@@ -583,7 +600,8 @@ python scripts/render_report.py --doc-id <doc_id> --format md --agg-dir <out>/ag
 | **节奏校准锚点完整表** | `references/pace-anchors.md` | 节奏犹豫时 |
 | **每层输出模板（可直接填充）** | `templates/*-output.json` | 避免漏字段 |
 | **数据质量看门狗（粗切前硬门槛）** | `scripts/quality_gate.py` | 对原始文本做五维检测（中文占比/引号闭合/乱码/段落结构/重复性），产出 quality_report.json；**粗切分前必须跑一遍**，fail 项需修复后再进入 preprocess（v3.4 新增） |
-| **计算文学分析（逐 segment 量化指标）** | `scripts/quant_analyzer.py` | 重排后、批注前逐 segment 计算句长/TTR/词性/对话占比/标点/情感词频（DLUT 子集）/五感密度，产出 quant_metrics.jsonl，作为 LLM 批注的硬证据注入；jieba 可选，缺失自动降级（v3.4 新增） |
+| **计算文学分析（逐 segment 量化指标）** | `scripts/quant_analyzer.py` | **Phase 2c 必须步骤（v3.18.0 接入）**：重排后、批注前逐 segment 计算句长/TTR/词性/对话占比/标点/情感词频（DLUT 子集）/五感密度，产出 quant_metrics.jsonl，作为 LLM 批注的硬证据注入；jieba 可选，缺失自动降级（v3.4 新增，v3.18.0 编入 run_pipeline Phase 2c） |
+| **事件序列聚合（全书事件表）** | `scripts/aggregation/event_sequence.py` | Phase 5 ⑨（必须，v3.18.0 新增）：以 scratchpad.events 为主序，对齐因果图（层级/显赫度/因果边）、场景图、结构层（D01/D08）、实体图（在场人物），输出 event_sequence.json（按段序 + 核心/卫星/转折统计） |
 | **场景语义精确切分重排（场景级 segments）** | `scripts/reshape_segments.py` | Phase 2b（必须）：读粗切 segments + scene_boundary.json（Agent 场景边界判断）+ 原始文本 → final_segments.jsonl（场景级，scene_NNN 编号）+ 新旧 ID 映射表；按字符区间从原文重切，章节边界自动识别（v3.5 新增，v3.17.0 升级为必须） |
 | **版本历史完整明细（3.9.0 及更早）** | `references/version-history.md` | 查历史版本变更/ADR 关联时 |
 | **同义词归一化器（自由词→枚举词保守映射）** | `scripts/term_normalizer.py` | 批量落盘前跑一遍纠偏（v3.1 新增） |
@@ -604,10 +622,11 @@ python scripts/render_report.py --doc-id <doc_id> --format md --agg-dir <out>/ag
 
 > **完整版本历史（3.9.0 及更早全部明细 + ADR 关联）已迁移至 `references/version-history.md`**。
 
-**当前版本 3.17.1**——最近变更见文件头版本声明块。近期版本摘要：
+**当前版本 3.18.0**——最近变更见文件头版本声明块。近期版本摘要：
 
 | 版本 | 日期 | 变化摘要 |
 |------|------|------|
+| **3.18.0** | 2026-09-07 | 增强模块接入：①计算文学模块接入正式流程（Phase 2c 必须，quant_analyzer 产出 quant_metrics.jsonl 作为批注量化硬证据）；②事件分析补独立事件序列产物（event_sequence.py 新脚本 + aggregation schema 3.6.0，聚合 12→13 脚本，报告新增事件序列章节） |
 | **3.17.1** | 2026-09-07 | Phase 2a 口径明确：场景边界判断以 Agent prompt 判断为主流程（无需外部 API key），wrapper 降为命令行自动化替代（SKILL.md §3.2 / run_pipeline 报错指引 / README / RUNBOOK 同步） |
 | **3.17.0** | 2026-09-07 | 流程架构重构（Owner 指令：无任何可选步骤、全部必须、连续编号）：①run_pipeline 重构为连续 Phase 1–8（质量门+粗切→LumberChunker 精确切分必须→四层全量批注→跨段→聚合 12 脚本→合并→校准→报告最后一步）；②聚合层由"可选但推荐"升级为必须 + report 补 story_graph/adapters 渲染（12 模块全显示）；③Phase 3.5 精排/段采样分层/--plan 移除，全量深度唯一；④质量门集成 Phase 1a |
 | **3.16.4** | 2026-09-07 | 《发条橙》产物审查 7 项修复（T-150~T-155）：①story_type 视角判定收紧（frontmatter 过滤+真实视角种类+0.7/0.1 阈值，修复 84% 第一人称误判多视角叙事）；②narrative_structure 激励事件容错（无 D01 激励事件时从首个高潮前强功能段逆查推断+derived 标记）；③preprocess 代序/引论边界降级（强正文章节前中文序列小节并入 frontmatter）+ 第X部/卷/Part 章节模式；④render_report 场景图/叙事技法真实字段渲染+MD Layer 3 文笔层摘要+--output-dir 目录语义；⑤SKILL.md 零填充预防纪律（D01/D06/D12/D17）+ annotation-examples 补 D12/D17 示例；⑥scratchpad 抽象物词表提升模块级并与 entity_resolution 39 词同源+schema.md D19.target 语义边界 |

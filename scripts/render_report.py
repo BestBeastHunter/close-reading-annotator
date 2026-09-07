@@ -49,6 +49,7 @@ AGG_FILES = [
     ("entity_graph", "{doc}_entity_graph.json"),
     ("scene_graph", "{doc}_scene_graph.json"),
     ("causal_graph", "{doc}_causal_graph.json"),
+    ("event_sequence", "{doc}_event_sequence.json"),
     ("object_chains", "{doc}_object_chains.json"),
     ("character_network", "{doc}_character_network.json"),
     ("character_biographies", "{doc}_character_biographies.json"),
@@ -491,6 +492,21 @@ def _render_aggregation_md(agg: dict, doc_id: str) -> list[str]:
         for ch in cg.get("chains", [])[:5]:
             lines.append(f"  - 链 {ch.get('chain_id','?')}：{ch.get('description','')[:60]}")
         lines.append("")
+    if "event_sequence" in agg:
+        es = agg["event_sequence"]
+        stats = es.get("statistics", {})
+        lines.append("### 📅 事件序列")
+        lines.append("")
+        lines.append(f"- 事件总数：{es.get('total_events', 0)}，核心 {stats.get('core_event_count', 0)} / "
+                     f"卫星 {stats.get('satellite_event_count', 0)}，转折 {stats.get('turning_point_count', 0)}")
+        for ev in es.get("event_sequence", [])[:15]:
+            _hl = (ev.get("hierarchy") or {}).get("level") or "—"
+            _sal = (ev.get("hierarchy") or {}).get("salience_score")
+            _sal_s = f"，显赫度 {_sal:.2f}" if isinstance(_sal, (int, float)) else ""
+            _part = "、".join(ev.get("participants") or ev.get("present_characters") or []) or "无"
+            lines.append(f"  - **{ev.get('event_id','?')}**（{_hl}{_sal_s}）：{str(ev.get('description',''))[:50]}"
+                         f"〔{ev.get('segment_id','?')} / {ev.get('scene_id') or '无场景'} / 人物：{_part}〕")
+        lines.append("")
     if "object_chains" in agg:
         oc = agg["object_chains"]
         stats = oc.get("statistics", {})
@@ -643,6 +659,29 @@ def _render_aggregation_html(agg: dict, doc_id: str) -> str:
             for ch in cg.get("chains", [])[:8]:
                 parts.append(f'<li>{html.escape(str(ch.get("description",""))[:80])}</li>')
             parts.append('</ul>')
+
+    if "event_sequence" in agg:
+        es = agg["event_sequence"]
+        stats = es.get("statistics", {})
+        parts.append(f'<h3 id="agg-events">📅 事件序列（{es.get("total_events", 0)} 事件 / 核心 '
+                     f'{stats.get("core_event_count", 0)} / 卫星 {stats.get("satellite_event_count", 0)} / '
+                     f'转折 {stats.get("turning_point_count", 0)}）</h3>')
+        rows = es.get("event_sequence", [])[:20]
+        if rows:
+            parts.append('<table border="1" cellpadding="6" style="border-collapse:collapse">')
+            parts.append('<tr><th>事件</th><th>层级</th><th>显赫度</th><th>描述</th><th>段/场景</th><th>人物</th><th>类型</th></tr>')
+            for ev in rows:
+                _hl = (ev.get("hierarchy") or {}).get("level") or "—"
+                _sal = (ev.get("hierarchy") or {}).get("salience_score")
+                _sal_s = f'{_sal:.2f}' if isinstance(_sal, (int, float)) else '—'
+                _part = html.escape("、".join(ev.get("participants") or ev.get("present_characters") or []) or "无")
+                _et = html.escape(str(ev.get("event_type") or ev.get("d01_function") or "—"))
+                parts.append(f'<tr><td>{html.escape(str(ev.get("event_id","")))}</td>'
+                             f'<td>{html.escape(_hl)}</td><td>{_sal_s}</td>'
+                             f'<td>{html.escape(str(ev.get("description",""))[:60])}</td>'
+                             f'<td>{html.escape(str(ev.get("segment_id","")))} / {html.escape(str(ev.get("scene_id") or "—"))}</td>'
+                             f'<td>{_part}</td><td>{_et}</td></tr>')
+            parts.append('</table>')
 
     if "object_chains" in agg:
         oc = agg["object_chains"]

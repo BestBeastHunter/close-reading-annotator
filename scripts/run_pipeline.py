@@ -6,10 +6,10 @@ scripts/run_pipeline.py — Phase 1–8 一体化驱动（v3.17.0 流程重构�
 把八个阶段串成一条命令：原文 → 报告，支持断点续跑（读 checkpoint 跳过已完成阶段）。
 
   Phase 1  输入预处理   quality_gate.py（质量门硬门槛）+ preprocess.py（粗切分）
-  Phase 2  精确切分     LumberChunker 场景语义切分：scene_boundary_wrapper.py（边界判断）→ reshape_segments.py（重排，产出 final_segments.jsonl + segment_id_mapping.json）
-  Phase 3  逐段批注     annotate_segment.py   ← 批注来源三选一（见下），四层全量 × 全部 segment（v3.17.0 起无采样/无档级）
+  Phase 2  精确切分+量化  LumberChunker 场景语义切分：scene_boundary_wrapper.py（边界判断）→ reshape_segments.py（重排，产出 final_segments.jsonl + segment_id_mapping.json）→ quant_analyzer.py（Phase 2c 计算文学，产出 quant_metrics.jsonl 作为 Phase 3 批注量化硬证据，均必须）
+  Phase 3  逐段批注     annotate_segment.py   ← 批注来源三选一（见下），四层全量 × 全部 segment（v3.17.0 起无采样/无档级），批注时须参考 Phase 2c 量化指标（v3.18.0）
   Phase 4  跨段分析     cross_segment.py      （规则启发式）
-  Phase 5  聚合层       scripts/aggregation/ 12 脚本全跑（实体消解→人物网络→场景图→角色弧线→故事类型→叙事结构→技法→因果→物件→传记→故事图→适配器）
+  Phase 5  聚合层       scripts/aggregation/ 13 脚本全跑（实体消解→人物网络→场景图→角色弧线→故事类型→叙事结构→技法→因果→事件序列→物件→传记→故事图→适配器）
   Phase 6  嵌套合并     merge_layers.py
   Phase 7  后处理校准   calibrate_quality.py + recalibrate_confidence.py + cross_validate_emotion.py（v3.17.0 起位于报告之前）
   Phase 8  报告渲染     render_report.py      （html/md，最后一步，含全部四层 + 跨段 + 聚合分析）
@@ -67,7 +67,7 @@ PHASE_KEYS = {  # 阶段号 → checkpoint 阶段标记
     8: "render_report_completed",
 }
 
-# 聚合层 12 脚本调用序列（依赖顺序：实体→网络/场景/弧线/类型/结构→技法/因果/物件→传记→故事图→适配器）
+# 聚合层 13 脚本调用序列（依赖顺序：实体→网络/场景/弧线/类型/结构→技法/因果/事件序列/物件→传记→故事图→适配器）
 # 每项：(脚本相对路径, [参数名列表]，参数从 run 上下文取值)
 _AGG_SCRIPTS = [
     "entity_resolution.py",
@@ -78,6 +78,7 @@ _AGG_SCRIPTS = [
     "narrative_structure.py",
     "writing_techniques.py",
     "causal_graph.py",
+    "event_sequence.py",
     "object_chains.py",
     "character_biographies.py",
     "story_graph.py",
@@ -109,7 +110,7 @@ def _run_phase(phase_no: int, doc_id: str, out_dir: Path, cmd: list[str], extra_
 
 def _run_aggregation(phase_no: int, doc_id: str, out_dir: Path, agg_out: Path,
                      segments_path: Path, layer_paths: dict, cross_path: Path | None) -> bool:
-    """Phase 5：聚合层 12 脚本全跑（v3.17.0 必须阶段，不再可关闭）。"""
+    """Phase 5：聚合层 13 脚本全跑（v3.17.0 必须阶段，不再可关闭；v3.18.0 增事件序列）。"""
     agg_out.mkdir(parents=True, exist_ok=True)
     eg = agg_out / f"{doc_id}_entity_graph.json"
 
@@ -154,10 +155,18 @@ def _run_aggregation(phase_no: int, doc_id: str, out_dir: Path, agg_out: Path,
          "--structure", _p("structure"), "--emotion", _p("emotion"),
          "--interpretation", _p("interpretation"), "--craft", _p("craft"),
          "--doc-id", doc_id, "--output-dir", str(agg_out)],
-        # ⑨ 物件链（依赖 craft）
+        # ⑨ 事件序列（依赖 causal_graph/scene_graph/scratchpad/entity_graph，v3.18.0 新增）
+        ["aggregation/event_sequence.py", "--segments", str(segments_path),
+         "--structure", _p("structure"),
+         "--scratchpad", str(out_dir / f"{doc_id}_scratchpad.json") if (out_dir / f"{doc_id}_scratchpad.json").is_file() else None,
+         "--causal-graph", str(agg_out / f"{doc_id}_causal_graph.json"),
+         "--scene-graph", str(agg_out / f"{doc_id}_scene_graph.json"),
+         "--entity-graph", str(eg),
+         "--doc-id", doc_id, "--output-dir", str(agg_out)],
+        # ⑩ 物件链（依赖 craft）
         ["aggregation/object_chains.py", "--craft", _p("craft"),
          "--doc-id", doc_id, "--output-dir", str(agg_out), "--include-all-types"],
-        # ⑩ 人物传记（依赖多数产物）
+        # ⑪ 人物传记（依赖多数产物）
         ["aggregation/character_biographies.py", "--segments", str(segments_path),
          "--structure", _p("structure"), "--interpretation", _p("interpretation"),
          "--craft", _p("craft"), "--emotion", _p("emotion"),
@@ -167,10 +176,10 @@ def _run_aggregation(phase_no: int, doc_id: str, out_dir: Path, agg_out: Path,
          "--character-network", str(agg_out / f"{doc_id}_character_network.json"),
          "--narrative-structure", str(agg_out / f"{doc_id}_narrative_structure.json"),
          "--doc-id", doc_id, "--output-dir", str(agg_out)],
-        # ⑪ 故事图合并（依赖全部聚合产物）
+        # ⑫ 故事图合并（依赖全部聚合产物）
         ["aggregation/story_graph.py", "--aggregation-dir", str(agg_out),
          "--doc-id", doc_id, "--output-dir", str(agg_out)],
-        # ⑫ 适配器输出（依赖 story_graph）
+        # ⑬ 适配器输出（依赖 story_graph）
         ["aggregation/adapters.py", "--story-graph", str(agg_out / f"{doc_id}_story_graph.json"),
          "--doc-id", doc_id, "--output-dir", str(agg_out)],
     ]
@@ -192,7 +201,7 @@ def _run_aggregation(phase_no: int, doc_id: str, out_dir: Path, agg_out: Path,
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="【精读批注 v3.17.1】Phase 1–8 一体化驱动（连续编号；无任何可选步骤；聚合/校准/精确切分均为必须）+ 断点续跑")
+        description="【精读批注 v3.18.0】Phase 1–8 一体化驱动（连续编号；无任何可选步骤；聚合/校准/精确切分均为必须）+ 断点续跑")
     p.add_argument("--input", default=None, help="原始文本文件（Phase 1 切分需要）")
     p.add_argument("--doc-id", required=True, help="文档 ID")
     p.add_argument("--output-dir", default=".", help="所有产物的输出目录（默认当前）")
@@ -308,6 +317,22 @@ def main() -> int:
     if final_segments_path.is_file():
         segments_path = final_segments_path
         print(f"📌 后续阶段使用精确切分段：{segments_path}")
+
+    # 2c. 计算文学分析（必须，v3.18.0 接入）：quant_metrics.jsonl 作为 Phase 3 批注的量化硬证据
+    quant_path = out_dir / f"{doc_id}_quant_metrics.jsonl"
+    if 2 in phases and final_segments_path.is_file():
+        if args.force or not quant_path.is_file():
+            ok = _run_phase(2, doc_id, out_dir, [
+                "quant_analyzer.py", "--segments", str(final_segments_path),
+                "--out", str(quant_path),
+            ])
+            if not ok:
+                print("❌ Phase 2c 计算文学分析失败（必须步骤，不允许跳过）", file=sys.stderr)
+                return 1
+        else:
+            print(f"⏭ Phase 2c 跳过：{quant_path} 已存在（--force 重跑）")
+    elif 2 in phases and not final_segments_path.is_file():
+        print("⏭ Phase 2c 跳过：无 final_segments.jsonl（无精确切分则量化无意义，计算文学仅作用于场景级段）")
 
     # ---------- Phase 3：逐段批注（四层全量，无采样） ----------
     if 3 in phases and not args.skip_annotate:

@@ -1,4 +1,4 @@
-﻿# 精读批注 Skill v3.17.1
+﻿# 精读批注 Skill v3.18.0
 
 > 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）与**全局聚合层**（实体/场景/角色弧线/故事类型/因果链/物件链/故事图/适配器）。
 > 适合：小说精读、故事拆解、叙事分析、文笔拆解、结构化语料构建。
@@ -109,6 +109,14 @@ python scripts/reshape_segments.py \
 
 产出：`<doc_id>_final_segments.jsonl`（场景级，segment_id=`{doc_id}_scene_{NNN}`）+ `<doc_id>_segment_id_mapping.json`（新旧 ID 映射）。**后续 Phase 3-8 全部使用 final_segments.jsonl**（run_pipeline 自动切换）。
 
+```bash
+# 2c 计算文学分析（必须，v3.18.0 接入）
+python scripts/quant_analyzer.py --segments outputs/annotations/my_novel_01/my_novel_01_final_segments.jsonl \
+  --out outputs/annotations/my_novel_01/my_novel_01_quant_metrics.jsonl
+```
+
+产出：`<doc_id>_quant_metrics.jsonl`（逐段量化指标：句长/TTR/词性占比/对话占比/标点密度/情感词频/五感密度），**Phase 3 批注每段前的量化硬证据**（D05 节奏/文笔层/D19 情感判断参考）。jieba 可选，缺失自动降级（产物 tokenizer 字段标记模式）。
+
 ### Phase 3：逐片段批注（L1 结构 / L2 阐释 / L3 文笔 / P4 情感）
 
 ```bash
@@ -120,7 +128,7 @@ python scripts/annotate_segment.py \
   --output-dir outputs/annotations/my_novel_01
 ```
 
-- **四层全量 × 全部 segment，无采样、无档级**（v3.17.0）
+- **四层全量 × 全部 segment，无采样、无档级**（v3.17.0）；**批注每段前读取 Phase 2c 量化指标**（quant_metrics.jsonl，v3.18.0）
 - `--layers` 组合：`structure` / `structure,interpretation` / `structure,interpretation,craft`，可加 `emotion`（P4，D19 情感分析）
 - **P4 情感层（v2.7）**：`--layers emotion` 时脚本自动读取该段 structure 的 D01/D04/D10 作为触发判定上下文并注入原文；情感词枚举 50 词见 [references/emotion-lexicon.md](references/emotion-lexicon.md)；`target/trigger/arc` 无明确值必须写 `null` + `null_reasons`，禁止编造
 - **Runtime Scratchpad（v3.13.0）**：批注过程中维护人物/事件工作记忆，提升指称一致性（默认启用）
@@ -144,9 +152,9 @@ python scripts/cross_segment.py \
 产出 `cross_segment.jsonl`。每条 `cross_ref` 是**双引用**（`segment_id` 位置 ID + `anchor_text` 内容锚点）——将来切分版本变化导致序号漂移时，`anchor_text` 仍可在原文检索重定位，关系链不静默失效。
 实现为**启发式规则**（情绪强度突变=因果候选、视角切换=时序候选、D09 主题复用=呼应候选、D06 埋设-揭露=伏笔-回收候选）。重跑默认 `--preserve-curated` 保留人工核验过的条目（规则条目带 `_source:'rule'` 标记）。
 
-### Phase 5：聚合层（必须，12 脚本）
+### Phase 5：聚合层（必须，13 脚本）
 
-> **v3.17.0 升级：聚合层由"可选但推荐"变为必须**。批注管"逐段信号"，聚合管"全书拼图"——实体消解 → 人物网络 → 场景图 → 角色弧线 → 故事类型 → 叙事结构 → 叙事技法 → 因果链 → 物件链 → 人物传记 → 故事图 → 适配器（text2story/YARN/NCP）。全部 12 个模块产物进入 Phase 8 报告展示。
+> **v3.17.0 升级：聚合层由"可选但推荐"变为必须**。批注管"逐段信号"，聚合管"全书拼图"——实体消解 → 人物网络 → 场景图 → 角色弧线 → 故事类型 → 叙事结构 → 叙事技法 → 因果链 → 事件序列 → 物件链 → 人物传记 → 故事图 → 适配器（text2story/YARN/NCP）。全部 13 个模块产物进入 Phase 8 报告展示（v3.18.0 增事件序列）。
 
 ```bash
 # 方式一：run_pipeline 自动执行（Phase 5）
@@ -260,7 +268,7 @@ close-reading-annotator/
 │   ├── check_enum_consistency.py    # v3.15 新增：枚举一致性自检（validate_output 常量 vs SKILL 速查表）
 │   ├── scratchpad.py                # v3.13 新增：Runtime Scratchpad 运行时便签本（人物/事件/物品工作记忆）
 │   ├── quality_gate.py              # v3.4 新增：Phase 0 数据质量看门狗（五维检测，粗切前硬门槛）
-│   ├── quant_analyzer.py            # v3.4 新增：计算文学分析（批注前辅助，逐 segment 量化指标，jieba 可选）
+│   ├── quant_analyzer.py            # v3.4 新增 / v3.18.0 接入：计算文学分析（Phase 2c 必须，逐 segment 量化指标，jieba 可选）
 │   ├── reshape_segments.py          # v3.5 新增：Phase 2b 场景语义精确切分重排（必须）（场景边界判断后按字符区间重切）
 │   │
 │   └── aggregation/                 # v2.9/v3.0/v3.7 新增：全局聚合器（批注完成后运行，独立后处理）
@@ -299,6 +307,7 @@ close-reading-annotator/
 > 修改批注层枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**。修改聚合层产物字段：**先改 `references/aggregation-schema.md`，再改 `scripts/aggregation/*.py`**。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
 
 主要里程碑：
+- **v3.18.0**：增强模块接入——①计算文学模块接入正式流程（Phase 2c 必须，quant_metrics.jsonl 作为批注量化硬证据）；②事件分析补独立事件序列产物（aggregation/event_sequence.py，聚合 12→13 脚本，报告新增事件序列章节，aggregation schema 3.6.0）。
 - **v3.17.1**：Phase 2a 口径明确——场景边界判断以 Agent prompt 判断为主流程（无需外部 API key），wrapper 降为命令行自动化替代。
 - **v3.17.0**：流程架构重构（Owner 指令：无任何可选步骤、全部必须、连续编号）——run_pipeline 重构为连续 Phase 1–8（质量门+粗切 → LumberChunker 精确切分必须 → 四层全量批注 → 跨段 → 聚合 12 脚本 → 合并 → 校准移到报告前 → 报告最后一步）；聚合层由"可选但推荐"升级为必须 + report 补 story_graph/adapters 渲染（12 模块全显示）；Phase 3.5 精排移除、段采样分层从工作流移除（--plan 参数删除）；质量门集成 Phase 1a 硬门槛。
 - **v3.16.3**（T-144/T-145）：发布前逐文件总检——修复聚合脚本 D19.target 同型 bug（character_network/character_biographies 从 primary 取 target 恒空 → 改从 emotion 层顶层取 dict{name}）；文档版本三域统一（skill 3.16.3 / annotation 2.10.0 / aggregation 3.5.0）；**批注深度策略修正：全量深度批注为默认与唯一正式档位**（段采样分档仅保留为显式降级选项）。
