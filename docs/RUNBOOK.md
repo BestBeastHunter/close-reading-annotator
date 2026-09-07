@@ -2,7 +2,7 @@
 
 > **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
 > 完整 schema / 枚举 / 设计决策见 `references/schema.md`（批注层）、`references/aggregation-schema.md`（聚合层）、`SKILL.md`、工作区 `docs/design-decisions.md`。
-> 版本：skill v3.14.1 / annotation schema 2.10.0 / aggregation schema 3.1.0（决策 22 三域解耦）
+> 版本：skill v3.16.1 / annotation schema 2.10.0 / aggregation schema 3.5.0（决策 22 三域解耦）
 
 ---
 
@@ -129,7 +129,9 @@ python scripts/checkpoint.py status --doc-id <doc_id> --dir <out>     # 查看�
 python scripts/checkpoint.py reset-layer --doc-id <doc_id> --layer structure --dir <out>  # 重置某层
 ```
 
-### 2.4 select_segments.py（段采样分层，决策 18 新增）
+### 2.4 select_segments.py（段采样分层，决策 18 新增；v3.16.1 起仅为显式降级选项）
+
+> ⚠️ **默认流程是全量深度批注**——不传 `--plan` 时 run_pipeline 对全部段执行四层全量批注。下面的分档仅在资源受限、需要显式降级时才使用。
 
 ```bash
 python scripts/select_segments.py --structure <out>/{doc}_structure.jsonl --output <out>/{doc}_segment_plan.json
@@ -314,7 +316,7 @@ python $AGG/adapters.py --story-graph $OUT/aggregation/${DOC}_story_graph.json \
 | `{doc}_cross_segment.jsonl` | Phase 3 | L4 跨段关系 |
 | `{doc}_merged.jsonl` | Phase 4 | 四层合并 + cross_refs 投影 |
 | `{doc}_report.md` / `.html` | Phase 5 | 最终报告 |
-| `{doc}_segment_plan.json` | select_segments | 段采样分层计划（deep/light/skip） |
+| `{doc}_segment_plan.json` | select_segments（仅显式降级） | 段采样分层计划（deep/light/skip） |
 
 ---
 
@@ -382,8 +384,8 @@ Remove-Item _batch_*.jsonl -Force
 清理后应保留以下正式产物：
 - `{doc_id}_segments.jsonl` — 切分结果
 - `{doc_id}_structure.jsonl` — 结构层批注
-- `{doc_id}_interpretation.jsonl` — 阐释层批注（深度档）
-- `{doc_id}_craft.jsonl` — 技法层批注（深度档）
+- `{doc_id}_interpretation.jsonl` — 阐释层批注（全量深度）
+- `{doc_id}_craft.jsonl` — 技法层批注（全量深度）
 - `{doc_id}_emotion.jsonl` — 情感层批注（P4 触发段）
 - `{doc_id}_cross_segment.jsonl` — 跨段关系
 - `{doc_id}_merged.jsonl` — 全层合并

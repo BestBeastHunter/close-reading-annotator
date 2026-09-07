@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 scripts/run_pipeline.py — Phase 1–6 一体化驱动（v2.7 工程化修复轮，决策 18；v3.8.3 新增 Phase 6 后处理校准）
@@ -19,7 +19,7 @@ Phase 2 批注来源（skill 不捆绑 API，三种模式）：
 
 分级档位（决策 18）：
   --plan <select_segments.py 产物>：structure 全量跑；interpretation/craft/emotion
-  只跑 plan 标为 deep 的段——让「20% 深度档」落地为规则而非人工选段。
+  只跑 plan 标为 deep 的段——让「20% 深度档」落地为规则而非人工选段。（v3.16.1 起：仅为显式降级选项，默认流程全量深度批注，不传 --plan。）
 
 断点续跑：
   每次成功完成一个阶段即写 checkpoint 阶段标记；再次运行时默认跳过已完成阶段

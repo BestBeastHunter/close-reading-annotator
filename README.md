@@ -1,9 +1,9 @@
-﻿# 精读批注 Skill v3.14.1
+﻿# 精读批注 Skill v3.16.1
 
 > 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）与**全局聚合层**（实体/场景/角色弧线/故事类型/因果链/物件链/故事图/适配器）。
 > 适合：小说精读、故事拆解、叙事分析、文笔拆解、结构化语料构建。
 > 本仓库即**完整可运行的 Skill 包**——放到 TRAE / Cursor / Claude Code 的 skills 目录即可使用，也支持纯手动模式（把 `SKILL.md` 注入任意大模型）。
-> **版本（决策 22 三域解耦）**：skill_version = `3.9.0` / annotation schema_version = `2.10.0` / aggregation schema_version = `3.1.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`/`2.10.0`。
+> **版本（决策 22 三域解耦）**：skill_version = `3.16.1` / annotation schema_version = `2.10.0` / aggregation schema_version = `3.5.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`/`2.10.0`。
 
 ---
 
@@ -175,7 +175,7 @@ python scripts/fill_spans.py ...   # 回补存量批注缺失的 span（历史�
 
 ---
 
-## 四、目录结构（v2.8）
+## 四、目录结构
 
 ```
 close-reading-annotator/
@@ -210,8 +210,11 @@ close-reading-annotator/
 │   ├── fill_spans.py                # 回补存量批注 span
 │   ├── export_dataset.py            # 脱敏导出训练数据
 │   ├── span_locator.py              # v2.7 新增：span 定位公共模块（fill_spans/annotate 复用）
-│   ├── select_segments.py           # v2.7 新增：段采样分层（deep/light/skip 分档）
+│   ├── select_segments.py           # v2.7 新增：段采样分层（deep/light/skip，仅显式降级选项，默认全量深度）
 │   ├── run_pipeline.py              # v2.7 新增：Phase 1–5 一体化驱动 + 断点续跑 + --plan
+│   ├── check_quotes.py              # v3.15 新增：引文预检（D06/D19 key_phrases/craft 全量子串校验）
+│   ├── check_enum_consistency.py    # v3.15 新增：枚举一致性自检（validate_output 常量 vs SKILL 速查表）
+│   ├── scratchpad.py                # v3.13 新增：Runtime Scratchpad 运行时便签本（人物/事件/物品工作记忆）
 │   ├── quality_gate.py              # v3.4 新增：Phase 0 数据质量看门狗（五维检测，粗切前硬门槛）
 │   ├── quant_analyzer.py            # v3.4 新增：Phase 1.5 计算文学分析（逐 segment 量化指标，jieba 可选）
 │   ├── reshape_segments.py          # v3.5 新增：Phase 1.25 精细化切分重排（场景边界判断后按字符区间重切）
@@ -223,6 +226,8 @@ close-reading-annotator/
 │       ├── story_type_inference.py  # v2.9 Step 4：故事类型推断（→ story_metadata.json）
 │       ├── narrative_structure.py   # v3.7 新增：叙事结构分析（弗雷塔格五幕+热奈特聚焦+叙事时间线+救猫咪节拍 → narrative_structure.json）
 │       ├── writing_techniques.py    # v3.8 新增：叙事技法分析（转场+悬念+蒙太奇+钩子 → writing_techniques.json）
+│       ├── character_network.py     # v3.11 新增：人物关系网络（共现+D19.target+D18 → character_network.json）
+│       ├── character_biographies.py # v3.13 新增：人物传记（时间线/关键时刻/关系演变/语言指纹/金句 → character_biographies.json）
 │       ├── causal_graph.py          # v3.0 Step 4：因果链生成（→ causal_graph.json）
 │       ├── object_chains.py         # v3.0 Step 5：物件链追踪（→ object_chains.json）
 │       ├── story_graph.py           # v3.0 Step 6：故事图合并（→ story_graph.json）
@@ -242,14 +247,18 @@ close-reading-annotator/
 
 | 版本域 | 声明点 | 值 |
 |--------|--------|-----|
-| **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.9.0` |
-| **annotation schema_version** | `references/schema.md` §一 / 批注 JSON `schema_version` / annotate_segment.py / examples/llm_wrapper.py | `2.9.0` |
-| **aggregation schema_version** | `references/aggregation-schema.md` / `scripts/aggregation/*.py` | `3.1.0` |
+| **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.16.1` |
+| **annotation schema_version** | `references/schema.md` §一 / 批注 JSON `schema_version` / annotate_segment.py / examples/llm_wrapper.py | `2.10.0` |
+| **aggregation schema_version** | `references/aggregation-schema.md` / `scripts/aggregation/*.py` | `3.5.0` |
 
-> 三域独立演进（决策 22）：skill 能力升级不再强绑定批注字段变更；批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`（旧产物版本分支豁免，不迁移）。
+> 三域独立演进（决策 22）：skill 能力升级不再强绑定批注字段变更；批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`/`2.10.0`（旧产物版本分支豁免，不迁移）。
 > 修改批注层枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**。修改聚合层产物字段：**先改 `references/aggregation-schema.md`，再改 `scripts/aggregation/*.py`**。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
 
 主要里程碑：
+- **v3.16.1**（T-144/T-145）：发布前逐文件总检——修复聚合脚本 D19.target 同型 bug（character_network/character_biographies 从 primary 取 target 恒空 → 改从 emotion 层顶层取 dict{name}）；文档版本三域统一（skill 3.16.1 / annotation 2.10.0 / aggregation 3.5.0）；**批注深度策略修正：全量深度批注为默认与唯一正式档位**（段采样分档仅保留为显式降级选项）。
+- **v3.16.0**（T-143）：全面代码审计修复轮——cross_segment 增强信号双重失效（追加进 refs 未落盘 → 移到去重前）、D19.target dict 兼容、causal_graph emotion_targets 类型、preprocess 兜底段 is_polluted、annotate_segment 模式 A _pad_metadata、SKILL §4.6 补 check_quotes 用法。
+- **v3.15.1**（T-133~T-136）：报告重构——四层全量呈现 + 聚合分析 10 模块集成 + 零依赖 SVG 可视化 + 报告分两段生成（--agg-dir）。
+- **v3.15.0**（T-125~T-132）：使用反馈一致性修复——枚举真源统一（validate_output 为唯一真源，D01/D07/D10/D11 四表重写 + D19 50 词全表内联）、输出参数统一 --output-dir、校验报错体验（枚举错误附合法值/span 才走 fuzzy 重试/失败汇总）、check_quotes.py 引文预检、_pad_metadata/hash 算法文档化。
 - **v3.14.1**：工程化加固（T-038/T-039/T-040，ADR-016）——①`span_locator.py` 模糊匹配增强（4级匹配：精确→空白归一→去标点→模糊相似度≥0.85，自动修正引文文本）；②`annotate_segment.py` 新增 `--auto-fix`/`--no-auto-fix`（craft层校验失败自动修复重试，默认开启）；③SKILL.md 新增 §4.0 枚举值速查表（15个维度全部枚举值一眼可查）。annotation/aggregation schema 不变（纯工程化加固）。
 - **v3.8.0**：叙事技法分析（T-037，ADR-014）——聚合层第 10 脚本 `writing_techniques.py`：4 子模块规则粗筛（同因果链"规则粗筛+LLM精排"架构）。①转场技巧（时间转场=年份差≥2或季节变化/空间转场=地点关键词变化/细节过渡=背景铺垫→过渡→上升行动/悬念转场=高潮转折→下降背景硬切）；②悬念设置（设疑法=D06隐藏含疑问词/连环设悬=连续≥3段隐藏/伏笔回收对=cross_refs/悬念留白=隐藏后5段内无揭示）；③蒙太奇手法（平行蒙太奇=5段窗口内地点变化≥3/交叉蒙太奇=D05≥4且D01快速切换/对比蒙太奇=相邻段D04极性相反且强度≥5）；④钩子类型（悬念钩子=段尾D06隐藏或D01转折/行动钩子=D05≥4或D01高潮/情感钩子=D04 intensity≥7/场景钩子=段首地点关键词变化）。综合技法评估（技法密度/写作风格=技法密集型≥3.0/技法均衡型≥1.5/技法简约型）。aggregation schema 不变（3.1.0，新增产物同版本）。annotation schema 不变（纯聚合新增）。
 - **v3.7.0**：叙事结构分析（T-036，ADR-014）——聚合层第 9 脚本 `narrative_structure.py`：弗雷塔格五幕（从 D01 序列按幕转换点推导，六幕区间+关键转折点+结构健康度）+ 热奈特聚焦（从 D07.type 统计+_narrator_identity，主导聚焦+切换率+复杂度+叙述者可靠性）+ 叙事时间线（从 D08.time+_time_type，时间节点+时间跳跃+时间结构类型，旧产物降级为关键词推断）+ 救猫咪节拍（简化 14 节拍，位置百分比定位+D01 信号验证）+ 叙事层级图（从 D08._narrative_level）。aggregation schema 3.0→3.1。annotation schema 不变（纯聚合新增）
@@ -269,15 +278,11 @@ close-reading-annotator/
 
 ---
 
-## 六、分级策略（成本与质量权衡）
+## 六、批注深度（全量深度为默认，v3.16.1 修正）
 
-| 档级 | 跑哪些层 | 适用场景 |
-|:----:|:---------|:---------|
-| 轻量档 | Phase 1 + 2（仅 structure）+ 4 | 大规模批量、先扫描全貌（约 80% 文档） |
-| 标准档 | Phase 1 + 2（structure + interpretation）+ 3 + 4 | 普通精读 / 拆解 |
-| 深度档 | Phase 1–5 全跑（含 craft + cross_segment + report） | 深度研究 / 训练样本核心池 |
+**正式流程 = 对全部 segment 执行四层全量深度批注**（structure + interpretation + emotion + craft）→ 跨段 → 合并 → 报告 → 聚合层。本 skill 的产品定位是「深度精读工具」：每一段都执行同等深度的四层分析，**不做按档级/场景的抽样缩减**。
 
-> 【成本纪律】请勿把全量深度维度跑应用到百万级文本——20% 深度档提供 80% 价值，80% 轻量档扩充基数。
+> 段采样分档（`select_segments.py` 的 deep/light/skip）仅保留为**资源受限时的显式降级选项**：使用者显式运行它生成 plan 并传给 `run_pipeline.py --plan` 才生效；不传 `--plan` 时一律全量深度。降级不影响本 skill 的全量深度默认定位。
 
 ---
 
@@ -312,7 +317,7 @@ close-reading-annotator/
 A1：刻意设计。SKILL.md 本体是**纯 Prompt 包**——任何能读 Markdown 的平台都能用，不捆绑任何脚本/API。在 Agentic 环境（TRAE/Cursor/Claude Code）下 AI 会按 Phase 1–5 工作流自动调用；纯 LLM 聊天里按第三节命令手动启动。
 
 ### Q2：我只想在 500 字片段上做一次批注，也要跑 5-Phase 吗？
-A2：不用。5-Phase 是长文本/批处理的最完整走法。小片段直接对 AI 说「精读这段：粘贴文本」，AI 按 `templates/` 输出对齐即可。
+A2：不用。5-Phase 是长文本/批处理的最完整走法；小片段直接对 AI 说「精读这段：粘贴文本」，AI 按 `templates/` 输出对齐即可。注意：无论片段大小，批注都是四层全量深度（不抽样）。
 
 ### Q3：validate_output.py 报「引文不在原文中」但我觉得是对的？
 A3：校验器先做空白归一化（`" ".join(s.split())`）再判子串。常见原因：(a) 引文 copy 回写时多了/少了前后标点；(b) 换行合并多了字。若为标点差异，相似度 ≥95% 会降级为 warning——把 `span` 边界补齐精确即可。

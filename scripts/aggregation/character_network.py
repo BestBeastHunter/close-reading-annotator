@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 v3.11.0 新增 — 人物关系网络聚合（Character Network）
@@ -96,25 +96,41 @@ def build_cooccurrence_matrix(entity_graph: dict) -> dict[tuple[str, str], int]:
 
 
 def extract_emotion_targets(emotion_rows: list[dict]) -> dict[tuple[str, str], list[dict]]:
-    """从 emotion 层提取 D19.target 情感指向：{(source_name, target_name): [emotion_data]}"""
+    """从 emotion 层提取 D19.target 情感指向：{(source_name, target_name): [emotion_data]}
+
+    v3.16.1 T-144：D19.target 真实形状位于 emotion 层**顶层**（直接格式），为
+    dict{name, entity_id, relation}（validate_output L471 真源）；旧格式 target 为 str，
+    或嵌套在 D19_emotion_analysis 下。此前从 primary 取 target 恒为 None → 情感指向全丢。
+    """
     targets = defaultdict(list)
     for row in emotion_rows:
         emotion = row.get("layers", {}).get("emotion", {})
         if not emotion:
             emotion = row.get("emotion", {})
-        primary = emotion.get("D19_emotion_analysis") or emotion.get("primary") or {}
-        if isinstance(primary, dict):
-            target = primary.get("target")
-            emotion_word = primary.get("emotion", "")
-            intensity = primary.get("intensity", 5)
-            seg_id = row.get("segment_id", "")
-            if target and isinstance(target, str) and len(target) <= 20:
-                # source 暂时用 "叙述者"，后续可以从 entity_graph 匹配
-                targets[("叙述者", target)].append({
-                    "emotion": emotion_word,
-                    "intensity": intensity,
-                    "segment_id": seg_id,
-                })
+        # d19 = 嵌套格式（D19_emotion_analysis 包装）或直接格式（emotion 层本身）
+        d19 = emotion.get("D19_emotion_analysis") or emotion
+        if not isinstance(d19, dict):
+            continue
+        primary = d19.get("primary") or {}
+        if not isinstance(primary, dict) or not primary:
+            # primary 是 schema 必填（validate_output 拒收缺失行），缺失视为整行无效
+            continue
+        target = d19.get("target")
+        # v3.16.1 T-144：target 为 dict{name,...}（直接格式）或 str（旧格式）
+        if isinstance(target, dict):
+            target = target.get("name")
+        if not (target and isinstance(target, str)):
+            target = None
+        emotion_word = primary.get("emotion", "")
+        intensity = primary.get("intensity", 5)
+        seg_id = row.get("segment_id", "")
+        if target and len(target) <= 20:
+            # source 暂时用 "叙述者"，后续可以从 entity_graph 匹配
+            targets[("叙述者", target)].append({
+                "emotion": emotion_word,
+                "intensity": intensity,
+                "segment_id": seg_id,
+            })
     return targets
 
 

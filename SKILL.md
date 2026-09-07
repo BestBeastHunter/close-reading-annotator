@@ -1,21 +1,21 @@
 ﻿---
 name: close-reading-annotator
-version: 3.14.1
+version: 3.16.1
 description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言、craft层自动修复(v3.8.1)、三项校准功能(v3.8.2：quality_score/confidence/DLUT交叉验证)。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v3.14.1
+# 四层精读批注 Skill v3.16.1
 
 对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
 **核心原则**：每段每层独立落盘 → 断点续跑 → Layer 4 二阶段执行 → 四层合并输出 → 聚合层拼图出全局叙事结构。
 
 > **版本声明（决策 22：三版本域解耦）**：
-> - **skill version** = `3.14.1`（本文件 frontmatter = README = RUNBOOK）。v3.14.1 items 启用（T-123）：①scratchpad.py 新增 ItemRecord 类 + items 物品表 + add_item/get_item 方法 + to_json/from_json 处理 items；②update_from_annotation 从 D15 意象提取中抽取器物/人体/色彩意象物品；③object_chains.py 新增 --scratchpad 参数利用 Scratchpad 物品信息增强物件链分析。v3.14.0 聚合层增强 + P1级4项简化吸收。（本文件 frontmatter = README = RUNBOOK）。v3.14.0 聚合层增强 + P1级4项简化吸收（ADR-029，T-120~T-124）：①event_function（事件功能：开启/发展/高潮/收束）；②narrative_speed（叙事速度：场景/概述/省略/正常）；③actantial_role（行动元角色：主要行动者/辅助者/阻碍者）；④desire_structure（欲望结构：pursues/driven_by/opposed_by）；⑤聚合层利用Scratchpad（entity_resolution.py --scratchpad参数）。aggregation schema 3.4.0→3.5.0。v3.13.2 Scratchpad深度优化。（本文件 frontmatter = README = RUNBOOK）。v3.13.2 Scratchpad 深度优化（ADR-029，T-117/T-118）：①LLM 生成人物描述工具（update_description/generate_description_prompt/get_characters_needing_description）；②第三人称代词最近匹配指称消解（他/她/他们根据最近出现人物推断，标记为待确认）；③待确认项注入 prompt（v3.13.0 已实现）。v3.13.1 事件/人物分析增强（ADR-029，T-111~T-116）。v3.13.1 事件/人物分析增强（ADR-029，T-111/T-112/T-115）：①事件显赫度评分（salience_score=因果位置0.4+叙述篇幅0.3+重复频率0.3，核心/卫星事件分层）；②人物复杂度评分（complexity_score=性格特征数0.4+情感方差0.3+关系数0.3，扁平/圆形/尖形分类）；③人物厚度+能动性曲线+出现密度分布+对话主导权；④Scratchpad抽取质量优化（D10.speaker抽取+代词回指+D06伏笔-回收事件对+编辑距离别名匹配增强）。v3.13.0 Runtime Scratchpad（ADR-029，T-107~T-110）。v3.8.2 三项校准功能（ADR-017，T-042/T-043/T-044）：①quality_score 校准（基于 Craft 层 D13-D17 加权评分，基础分40%+数量分40%+多样性分20%）；②confidence 信号驱动重算（5信号加权：校验通过30%+字段完整性25%+引文精度20%+枚举合法性15%+跨层一致性10%，confidence_method=recalibrated_v382）；③DLUT 弱信号交叉验证（基于 DLUT 子集 9901 词对 segment 原文做情感词频统计，与 D19 主情感对比，双轨存储 _baseline_emotion 字段，平均一致率 88.7%）。v3.8.1 工程化加固（ADR-016，T-038/T-039/T-040）：span_locator 模糊匹配增强 + annotate_segment --auto-fix + SKILL.md 枚举值速查表。v3.8 叙事技法分析（ADR-014，T-037）；v3.7 叙事结构分析（ADR-014，T-036）；v3.6 原子化扩展字段（ADR-014，T-035）；v3.5 精细化切分器/重排（ADR-014，T-034）；v3.4 前置双模块（ADR-014，T-033）；v3.3 DLUT 完整引入（ADR-013，T-032）；v3.2 一致性基础设施（ADR-012，T-031）；v3.1 词表手术（ADR-011，T-030）。
+> - **skill version** = `3.16.1`（本文件 frontmatter = README = RUNBOOK）。**v3.16.1 发布前逐文件总检（T-144/T-145）**：①修复聚合脚本 D19.target 同型 bug（character_network/character_biographies 从 primary 取 target 恒空 → 改从 emotion 层顶层取 dict{name}，兼容 str/嵌套旧格式）；②文档版本三域统一（skill 3.16.1 / annotation 2.10.0 / aggregation 3.5.0）；③**批注深度策略修正：全量深度批注为默认与唯一正式档位，段采样分档（select_segments deep/light/skip）仅保留为显式降级选项**。v3.16.0 全面代码审计修复轮（T-143）：①cross_segment 增强信号双重失效（追加进 refs 但 final_refs 已定型→永不落盘）→ 移到去重前 + D19.target dict 兼容 + 输入目录定位；②causal_graph emotion_targets 类型（target 是 dict 非 list）；③preprocess 兜底段 is_polluted 语义矛盾两处改 True；④annotate_segment 模式 A 补 _pad_metadata；⑤SKILL §4.6 补 check_quotes.py 引文预检用法。v3.15.1 报告重构（T-133~T-136）：四层全量呈现 + 聚合 10 模块集成 + 零依赖 SVG + --agg-dir。v3.15.0 使用反馈一致性修复（T-125~T-132）：枚举真源统一（validate_output 为唯一真源）+ 输出参数统一 --output-dir + 校验报错体验 + check_quotes.py。v3.14.1 items 启用（T-123）：①scratchpad.py 新增 ItemRecord 类 + items 物品表 + add_item/get_item 方法 + to_json/from_json 处理 items；②update_from_annotation 从 D15 意象提取中抽取器物/人体/色彩意象物品；③object_chains.py 新增 --scratchpad 参数利用 Scratchpad 物品信息增强物件链分析。v3.14.0 聚合层增强 + P1级4项简化吸收。（本文件 frontmatter = README = RUNBOOK）。v3.14.0 聚合层增强 + P1级4项简化吸收（ADR-029，T-120~T-124）：①event_function（事件功能：开启/发展/高潮/收束）；②narrative_speed（叙事速度：场景/概述/省略/正常）；③actantial_role（行动元角色：主要行动者/辅助者/阻碍者）；④desire_structure（欲望结构：pursues/driven_by/opposed_by）；⑤聚合层利用Scratchpad（entity_resolution.py --scratchpad参数）。aggregation schema 3.4.0→3.5.0。v3.13.2 Scratchpad深度优化。（本文件 frontmatter = README = RUNBOOK）。v3.13.2 Scratchpad 深度优化（ADR-029，T-117/T-118）：①LLM 生成人物描述工具（update_description/generate_description_prompt/get_characters_needing_description）；②第三人称代词最近匹配指称消解（他/她/他们根据最近出现人物推断，标记为待确认）；③待确认项注入 prompt（v3.13.0 已实现）。v3.13.1 事件/人物分析增强（ADR-029，T-111~T-116）。v3.13.1 事件/人物分析增强（ADR-029，T-111/T-112/T-115）：①事件显赫度评分（salience_score=因果位置0.4+叙述篇幅0.3+重复频率0.3，核心/卫星事件分层）；②人物复杂度评分（complexity_score=性格特征数0.4+情感方差0.3+关系数0.3，扁平/圆形/尖形分类）；③人物厚度+能动性曲线+出现密度分布+对话主导权；④Scratchpad抽取质量优化（D10.speaker抽取+代词回指+D06伏笔-回收事件对+编辑距离别名匹配增强）。v3.13.0 Runtime Scratchpad（ADR-029，T-107~T-110）。v3.8.2 三项校准功能（ADR-017，T-042/T-043/T-044）：①quality_score 校准（基于 Craft 层 D13-D17 加权评分，基础分40%+数量分40%+多样性分20%）；②confidence 信号驱动重算（5信号加权：校验通过30%+字段完整性25%+引文精度20%+枚举合法性15%+跨层一致性10%，confidence_method=recalibrated_v382）；③DLUT 弱信号交叉验证（基于 DLUT 子集 9901 词对 segment 原文做情感词频统计，与 D19 主情感对比，双轨存储 _baseline_emotion 字段，平均一致率 88.7%）。v3.8.1 工程化加固（ADR-016，T-038/T-039/T-040）：span_locator 模糊匹配增强 + annotate_segment --auto-fix + SKILL.md 枚举值速查表。v3.8 叙事技法分析（ADR-014，T-037）；v3.7 叙事结构分析（ADR-014，T-036）；v3.6 原子化扩展字段（ADR-014，T-035）；v3.5 精细化切分器/重排（ADR-014，T-034）；v3.4 前置双模块（ADR-014，T-033）；v3.3 DLUT 完整引入（ADR-013，T-032）；v3.2 一致性基础设施（ADR-012，T-031）；v3.1 词表手术（ADR-011，T-030）。
 > - **annotation schema_version** = `2.10.0`（`references/schema.md` §一 = 批注 JSON `schema_version` = annotate_segment.py / examples/llm_wrapper.py）。v2.10.0 新增 5 个可选字段（D07._narrator_identity / D08._time_type / D08._narrative_level / D06._techniques / D12_narrative_mode），全部可选允许 null。**注意**：批注数据 schema 与 skill 版本解耦，skill 升 3.x 不代表批注字段变更。
-> - **aggregation schema_version** = `3.4.0`（`references/aggregation-schema.md` = `scripts/aggregation/*.py`）。v3.13.1 causal_graph/character_arcs 新增 event_hierarchy/causal_structure/event_attributes/character_type/character_depth/agency_curve/density_distribution/dialogue_dominance。v3.7 新增 narrative_structure.json 产物。
+> - **aggregation schema_version** = `3.5.0`（`references/aggregation-schema.md` = `scripts/aggregation/*.py`）。v3.13.1 causal_graph/character_arcs 新增 event_hierarchy/causal_structure/event_attributes/character_type/character_depth/agency_curve/density_distribution/dialogue_dominance。v3.7 新增 narrative_structure.json 产物。
 > - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0 / 2.8.0 / 2.9.0 / 2.10.0`（旧产物版本分支豁免，不迁移；v2.10.0 新增可选字段缺失时视为 null 放行）。
 > - **枚举真源**：批注层 `references/schema.md`；聚合层 `references/aggregation-schema.md`（本文件速览 / validate_output.py / templates 均须同步）。**唯一例外**：D19 `emotion` 枚举（50 词）真源为 `references/emotion-lexicon.md`（决策 17 特批）。词表演化映射参考：`references/emotion-taxonomy.md`（DLUT 21 小类三级映射，ADR-013）。
 
@@ -404,11 +404,12 @@ python scripts/annotate_segment.py --segments <out>/{doc_id}_segments.jsonl \
 
 **关键纪律**：`emotion` 只能选自 `references/emotion-lexicon.md` 50 词（词表没有→选最接近词 + `expression.note` 说明，不造新词）；`target/trigger/arc` 无明确依据一律 null + 顶层 `null_reasons`，**禁止编造情感对象与情感弧**；`expression.key_phrases` 每项必须是原文子串（校验 error 级）。
 
-### 3.6 段采样分层策略（决策 18 新增）
+### 3.6 段采样分层（决策 18 新增，v3.16.1 修正为显式降级选项）
 
-分级策略此前只管「层」不管「段」。`select_segments.py` 读已批全量的 structure，把每段分档，让「20% 深度档」规则化而非人工选段：
+> **默认流程：全量深度批注**——对全部 segment 执行四层（structure / interpretation / emotion / craft）全量批注，**不做任何抽样**。段采样分档仅作为**资源受限时的显式降级选项**保留：使用者显式运行 `select_segments.py` 生成 plan，并显式传给 `run_pipeline.py --plan` 才生效；不传 `--plan` 时一律全量深度。
 
 ```bash
+# 仅显式降级时使用（默认不跑）：
 python scripts/select_segments.py --structure <out>/{doc_id}_structure.jsonl
 # 产出 {doc_id}_segment_plan.json（tiers: deep/light/skip + per_segment 理由）
 ```
@@ -586,15 +587,11 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 
 ---
 
-## 6. 分级策略（成本红线）
+## 6. 批注深度（全量深度为默认，v3.16.1 修正）
 
-| 档级 | 跑哪些层 | 典型用途 |
-|:--:|:--|:--|
-| 轻量档 | Phase 1 + 2（仅 structure）+ 4 | 大规模批量扩充基数 |
-| **标准档**（默认）| Phase 1 + 2（structure+interpretation）+ 3 + 4 | 普通精读 / 拆解 |
-| 深度档 | Phase 1–5 全跑（含 craft + report）| 金标准样本 / 训练集核心 |
+**本 skill 的正式流程 = 对全部 segment 执行四层全量深度批注**（structure / interpretation / emotion / craft）+ 跨段 + 合并 + 报告 + 聚合层。全量深度是默认且唯一的正式档位——每一段都执行同等深度的四层分析。
 
-> 【成本红线】严禁把全量深度维度跑应用到百万级文本——20% 深度档提供 80% 价值。**段轴采样**（§3.6）：structure 全量（便宜）→ `select_segments` 分档 → 深度层只跑 deep 段，把红线从"人工克制"变成"规则强制"。
+> 段采样分档（§3.6，`select_segments.py`）仅保留为**资源受限时的显式降级选项**，由使用者显式指定 `--plan` 才生效，不代表默认流程。
 
 ---
 

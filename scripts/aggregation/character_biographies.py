@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 v3.12.0 新增 — 人物传记聚合（Character Biographies）
@@ -144,13 +144,16 @@ def extract_timeline_for_character(
                             key_quote = pattern[:80]
 
         # 检查 emotion 层 D19.target
+        # v3.16.1 T-144：target 位于 emotion 层顶层（直接格式），为 dict{name,...} 或 str（旧格式）
         emotion_row = emotion.get(seg_id)
         if emotion_row:
             emo_data = emotion_row.get("layers", {}).get("emotion") or emotion_row.get("emotion") or {}
-            primary = emo_data.get("D19_emotion_analysis") or emo_data.get("primary") or {}
-            if isinstance(primary, dict):
-                target = primary.get("target", "")
-                if target and any(n in target or target in n for n in all_names):
+            d19 = emo_data.get("D19_emotion_analysis") or emo_data
+            if isinstance(d19, dict):
+                target = d19.get("target")
+                if isinstance(target, dict):
+                    target = target.get("name")
+                if target and isinstance(target, str) and any(n in target or target in n for n in all_names):
                     char_present = True
 
         # 检查 structure 层 D10（对话）
@@ -287,19 +290,26 @@ def extract_relationships(char_name: str, char_id: str, character_network: dict 
                 })
 
     # 从 D19.target 时序推断关系演变
+    # v3.16.1 T-144：target 位于 emotion 层顶层（dict{name,...}），emotion/intensity 仍在 primary
     target_timeline = defaultdict(list)
     for seg_id, emo_row in emotion.items():
         emo_data = emo_row.get("layers", {}).get("emotion") or emo_row.get("emotion") or {}
-        primary = emo_data.get("D19_emotion_analysis") or emo_data.get("primary") or {}
-        if isinstance(primary, dict):
-            target = primary.get("target", "")
-            emo = primary.get("emotion", "")
-            if target and target != char_name and not any(n in target for n in all_names):
-                target_timeline[target].append({
-                    "segment_id": seg_id,
-                    "emotion": emo,
-                    "intensity": primary.get("intensity", 5),
-                })
+        d19 = emo_data.get("D19_emotion_analysis") or emo_data
+        if not isinstance(d19, dict):
+            continue
+        target = d19.get("target")
+        if isinstance(target, dict):
+            target = target.get("name")
+        primary = d19.get("primary") or {}
+        if not isinstance(primary, dict):
+            continue
+        emo = primary.get("emotion", "")
+        if target and isinstance(target, str) and target != char_name and not any(n in target for n in all_names):
+            target_timeline[target].append({
+                "segment_id": seg_id,
+                "emotion": emo,
+                "intensity": primary.get("intensity", 5),
+            })
 
     # 把演变信息合并到 relationships
     for rel in relationships:
