@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 scripts/quant_analyzer.py — 计算文学分析模块（v3.4.0 / T-033-L2 / ADR-014）
@@ -202,7 +202,7 @@ def compute_metrics(text: str, dlut: dict[str, dict], dlut_words: set[str]) -> d
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="计算文学分析——逐 segment 量化指标（纯 stdlib 优先，jieba 可选）")
+    ap = argparse.ArgumentParser(description="计算文学分析——逐 segment 量化指标（纯 stdlib 优先，jieba 可选；产物含 tokenizer 模式标记）")
     ap.add_argument("--segments", type=Path, required=True, help="输入 segments.jsonl")
     ap.add_argument("--out", type=Path, default=None, help="输出 quant_metrics.jsonl")
     ap.add_argument("--dlut-subset", type=Path,
@@ -241,9 +241,12 @@ def main() -> int:
             if not text:
                 continue
             metrics = compute_metrics(text, dlut, dlut_words)
+            # v3.16.2 E4：产物显式标记分词模式（jieba / DLUT 最大正向匹配降级），
+            # 避免下游聚合层拿到降级模式的失真词性统计却无法识别
             record = {
                 "schema_version": SCHEMA_VERSION,
                 "segment_id": seg_id,
+                "tokenizer": "jieba" if _HAS_JIEBA else "dlut_fmm_fallback",
                 "metrics": metrics,
             }
             fout.write(json.dumps(record, ensure_ascii=False) + "\n")

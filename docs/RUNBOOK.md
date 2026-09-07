@@ -393,7 +393,7 @@ Remove-Item _batch_*.jsonl -Force
 - `{doc_id}_checkpoint.json` — 断点续跑状态
 - `{doc_id}_segment_plan.json` — 分档计划（如有）
 - `{doc_id}_quality_report.json` — 质量门报告（v3.4）
-- `{doc_id}_quant_metrics.jsonl` — 计算文学指标（v3.4）
+- `{doc_id}_quant_metrics.jsonl` — 计算文学指标（v3.4；v3.16.2 起每行含 `tokenizer` 字段：jieba / dlut_fmm_fallback）
 - `aggregation/` — 聚合层产物目录
 
 
