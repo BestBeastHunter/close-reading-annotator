@@ -9,11 +9,11 @@
 
 ## 〇、版本与命名约定
 
-- 聚合产物文件名：`{doc_id}_{entity_graph|scene_graph|character_arcs|story_metadata|narrative_structure|writing_techniques|causal_graph|object_chains|event_sequence|story_graph}.json`，适配器产物 `{doc_id}_{text2story|yarn|ncp}.json`。
+- 聚合产物文件名：`{doc_id}_{entity_graph|scene_graph|character_arcs|story_metadata|narrative_structure|writing_techniques|causal_graph|object_chains|event_sequence|character_network|character_biographies|story_graph}.json`，适配器产物 `{doc_id}_{text2story|yarn|ncp}.json`。
 - 所有产物顶层含 `doc_id` / `schema_version` / `generated_at`（ISO8601）。
 - 确定性纪律（v3.0.1）：任何集合转列表必须 `sorted(set(...))`；平票取先出现者——禁止依赖 `set()` 迭代顺序（PYTHONHASHSEED 漂移，审计 P2-3）。
 - **v3.1.0 变更（ADR-014，T-036/T-037）**：新增 `narrative_structure.json`（叙事结构分析，v3.7）和 `writing_techniques.json`（叙事技法分析，v3.8）两个产物。其余 8 个聚合产物 schema 不变（3.0.0）。
-- **v3.6.0 变更（v3.18.0，事件序列产物）**：新增 `event_sequence.json`（全书事件表，event_sequence.py）——以运行时便签本 scratchpad.events 为主序，对齐因果图（hierarchy/salience/causal_structure/因果边）、场景图（scene_id）、结构层（D01/D08）、实体图（在场人物）；含按段序事件列表 + statistics（核心/卫星/转折统计 + top 显赫度）。其余聚合产物 schema 不变。
+- **v3.6.0 变更（v3.18.0，事件序列产物 + 文档补齐）**：①新增 `event_sequence.json`（全书事件表，event_sequence.py）——以运行时便签本 scratchpad.events 为主序，对齐因果图（hierarchy/salience/causal_structure/因果边）、场景图（scene_id）、结构层（D01/D08）、实体图（在场人物）；含按段序事件列表 + statistics（核心/卫星/转折统计 + top 显赫度）；②补齐 `character_network.json`（§十二，schema 3.2.0）与 `character_biographies.json`（§十三，schema 3.3.0）两章文档（此两产物自 v3.17.0 起纳入必须链，文档此前缺失）。其余聚合产物 schema 不变。
 - **v3.5.0 变更（ADR-029，T-111/T-112）**：`causal_graph.json` 新增 event_hierarchy（核心/卫星事件+salience_score显赫度评分）、causal_structure（causal_type直接/间接/条件+is_turning_point）、event_attributes（时间/空间/情感/参与者/叙事功能/强度）；`character_arcs.json` 新增 character_type（扁平/圆形/尖形+complexity_score复杂度评分）、character_depth（不可还原特质+文本空白数）、agency_curve（能动性曲线+agency_distribution+agency_trend）、density_distribution（出现密度分布+peak_interval+peak_density）、dialogue_dominance（对话主导权+dominance_ratio+dominance_level+言说动词分布）。其余聚合产物 schema 不变。
 
 ---
@@ -483,5 +483,195 @@
 - 上游：scratchpad.events（主源）、structure 层（D01/D08）、causal_graph（层级/显赫度/因果边）、scene_graph（场景归属）、entity_graph（参与者归一 + 在场人物）。
 - 下游：render_report 报告"事件序列"章节（MD `### 📅 事件序列` / HTML `h3 id="agg-events"`，前 15-20 条 + 统计）；story_graph 合并。
 - 确定性纪律：participants / present_characters / in_edges / out_edges 均 `sorted(set(...))`；top_salience_events 按 salience_score 降序，平票按 event_id 字典序。
+
+---
+
+## 十二、character_network.json（人物关系网络，schema 3.2.0 / character_network.py）
+
+> **定位**：基于 entity_graph 共现矩阵 + D19.target（情感对象）+ D18（对话关系），构建带关系类型和强度的人物关系网络。v3.17.0 起为必须链 ②（紧接 entity_resolution 之后）。纯规则引擎，零第三方依赖。
+
+### 12.1 顶层结构
+
+```json
+{
+  "doc_id": "my_novel_01",
+  "schema_version": "3.2.0",
+  "generated_at": "2026-09-07T10:00:00+08:00",
+  "total_nodes": 41,
+  "total_edges": 7,
+  "nodes": [ { "id": "entity_001", "name": "亚历克斯", "centrality": 0.9, "occurrence_count": 6, "segment_count": 5 } ],
+  "edges": [ { "edge_id": "rel_0001", "source": "entity_001", "target": "entity_002", "relation": "友情", "strength": 0.2, "cooccurrence": 5, "dialogue_count": 0, "emotion_mentions": 0 } ],
+  "communities": [ { "community_id": "comm_001", "label": "友情", "members": ["亚历克斯", "丁姆"] } ],
+  "generator": "character_network",
+  "_metadata": { "method": "cooccurrence+D19+D18" }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `doc_id` | string | 文档 ID |
+| `schema_version` | string | `3.2.0` |
+| `generated_at` | string | ISO8601 生成时间 |
+| `total_nodes` / `total_edges` | int | 节点/边总数 |
+| `nodes` | array | 人物节点（见 12.2） |
+| `edges` | array | 关系边（见 12.3） |
+| `communities` | array | 社区分组（按关系类型聚类，见 12.4） |
+| `generator` | string | 生成器标识 |
+| `_metadata` | object | 生成元信息 |
+
+### 12.2 nodes[]（人物节点）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 实体 ID（= entity_graph 实体 ID，如 `entity_001`） |
+| `name` | string | 规范名 |
+| `centrality` | float | 中心度 0-1（度数中心性归一） |
+| `occurrence_count` | int | 提及总次数（来自 entity_graph occurrence） |
+| `segment_count` | int | 出场段数 |
+
+### 12.3 edges[]（关系边）
+
+关系类型枚举（10 类）：`亲情` / `爱情` / `友情` / `战友` / `敌对` / `上下级` / `师徒` / `暗恋` / `合作` / `陌生`。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `edge_id` | string | 边 ID（`rel_0001` 递增） |
+| `source` / `target` | string | 两端实体 ID |
+| `source_name` / `target_name` | string | 两端规范名（便于阅读） |
+| `relation` | string | 关系类型（枚举 10 类） |
+| `strength` | float | 关系强度 0-1 = 共现频次(0.4) + 情感指向强度(0.3) + 对话频次(0.3) |
+| `cooccurrence` | int | 共现次数（entity_graph 共现矩阵） |
+| `dialogue_count` | int | 对话共现次数（D18） |
+| `emotion_mentions` | int | 情感指向次数（D19.target 指向对方） |
+
+### 12.4 communities[]（社区分组）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `community_id` | string | 社区 ID（`comm_001` 递增） |
+| `label` | string | 社区标签（主导关系类型） |
+| `members` | array | 成员规范名列表（`sorted(set(...))` 确定性排序） |
+
+### 12.5 与上下游的关系
+
+- 上游：entity_graph（节点/共现）、emotion 层 D19.target（情感指向）、craft 层 D18（对话关系）。
+- 下游：character_biographies（关系维度）、story_graph 合并、报告"人物网络"章节。
+
+---
+
+## 十三、character_biographies.json（人物传记聚合，schema 3.3.0 / character_biographies.py）
+
+> **定位**：把按时间顺序的逐段批注重新组织为以人物为中心的传记式分析——时间线/关键时刻/关键决策/关系/情感弧/性格/语言指纹/金句/综合评价，供报告与下游消费（如生成器角色设定）。v3.17.0 起为必须链 ⑪。纯规则引擎，零第三方依赖；`--max-biographies` 控制传记上限（默认 15）。
+
+### 13.1 顶层结构
+
+```json
+{
+  "doc_id": "my_novel_01",
+  "schema_version": "3.3.0",
+  "generated_at": "2026-09-07T10:00:00+08:00",
+  "total_biographies": 5,
+  "total_segments": 50,
+  "biographies": [ { "character_id": "entity_001", "name": "亚历克斯", "..." : "..." } ],
+  "generator": "character_biographies",
+  "_metadata": { "method": "rule_based_v3_12", "main_character_threshold": 0.05, "max_biographies": 15 }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `doc_id` | string | 文档 ID |
+| `schema_version` | string | `3.3.0` |
+| `generated_at` | string | ISO8601 生成时间 |
+| `total_biographies` | int | 传记数 |
+| `total_segments` | int | 全书段数 |
+| `biographies` | array | 传记列表（按人物出场段数降序，见 13.2） |
+| `generator` | string | 生成器标识 |
+| `_metadata` | object | 元信息：`main_character_threshold`（主要人物出场阈值，默认 0.05 = 出场段数 ≥ max(3, total*5%)）/ `max_biographies`（传记上限） |
+
+### 13.2 biographies[]（单个人物传记）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `character_id` | string | 实体 ID（= entity_graph 实体 ID） |
+| `name` | string | 规范名 |
+| `aliases` | array | 别名列表（entity_graph 别名） |
+| `biography` | object | 概要（见 13.2.1） |
+| `timeline` | array | 时间线（见 13.2.2） |
+| `key_moments` | array | 关键时刻（见 13.2.3） |
+| `decision_points` | array | 关键决策（决策关键词规则，见 13.2.4） |
+| `relationships` | array | 人物关系（character_network 对齐，见 13.2.5） |
+| `emotional_arc` | object | 情感弧线（character_arcs 对齐） |
+| `character_traits` | array | 性格特征（character_arcs.character_depth 对齐） |
+| `voice_fingerprint` | object | 语言指纹（D18 聚合） |
+| `key_quotes` | array | 金句（D13_golden_lines 按人物绑定） |
+| `appearance_stats` | object | 出场统计（见 13.2.6） |
+| `agency_curve` | array | 能动性曲线（character_arcs 对齐） |
+| `dialogue_dominance` | object | 对话主导权（character_arcs 对齐） |
+| `character_depth` | object | 人物深度（character_arcs 对齐：不可还原特质/文本空白） |
+| `appreciation` | string | 规则生成的人物综合评价（见 13.2.7） |
+
+#### 13.2.1 biography（人物概要）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `summary` | string | 一句话概括（规则模板："{name}，{role_in_story}，全书出场{N}段"） |
+| `first_appearance` / `last_appearance` | string | 首现/末现段 ID |
+| `total_segments` | int | 出场段数 |
+| `role_in_story` | string | 角色定位（主角/配角等，按出场占比推断） |
+| `character_type` | string | 扁平/圆形（character_arcs 对齐） |
+| `complexity_score` | float | 复杂度 0-1 |
+| `dynamic_static` | string | 动态/静态 |
+
+#### 13.2.2 timeline（时间线）
+
+按段序排列的人物事件序列，每项含：`segment_id` / `segment_index` / `chapter` / `event`（"{章节}：{D01 功能}"）/ `d01_function` / `emotion`（D19）/ `intensity` / `key_quote`（D13 绑定）/ `significance`（`high`/`medium`/`low`，按 D01 功能与情感强度映射）/ `has_dialogue`。
+
+#### 13.2.3 key_moments（关键时刻）
+
+| 字段 | 说明 |
+|------|------|
+| `type` | `climax` / `turning_point` / `inciting_incident` / `resolution` 等（按 D01 功能映射） |
+| `segment_id` / `chapter` | 位置 |
+| `description` | "{章节}：{D01 功能}" |
+| `emotion` / `intensity` / `key_quote` | 该段情感/强度/绑定金句 |
+
+#### 13.2.4 decision_points（关键决策）
+
+规则识别：含决策关键词（决定/选择/必须/放弃/答应/拒绝 等）的段，标注 `segment_id` / `description` / `source`（`rule_keyword`）。
+
+#### 13.2.5 relationships（人物关系）
+
+| 字段 | 说明 |
+|------|------|
+| `target` | 关系对象规范名 |
+| `relation` | 关系类型（10 类枚举） |
+| `strength` | 强度 0-1（character_network 对齐） |
+| `evidence_segments` | 证据段 ID 列表 |
+
+#### 13.2.6 appearance_stats（出场统计）
+
+| 字段 | 说明 |
+|------|------|
+| `segment_count` | 出场段数 |
+| `presence_ratio` | 出场占比（= 出场段数 / 全书段数） |
+| `first_appearance` / `last_appearance` | 首现/末现段 |
+
+#### 13.2.7 appreciation（综合评价）
+
+规则模板生成（v3.12.0 起为规则版，未来可升级 LLM 版）：
+
+```
+{name}是故事的{role_in_story}，{character_type}人物、{dynamic_static}发展。
+全书出场{total_segments}段，情感轨迹由{起始情感}走向{终点情感}（{强度区间}）。
+与{主要关系对象}的关系以{关系类型}为主（强度 {strength}）。
+```
+
+### 13.3 与上下游的关系
+
+- 上游：segments / structure / interpretation / craft / emotion / cross_segment 批注层 + entity_graph（实体/别名）+ character_arcs（类型/弧线/深度/能动性/对话主导权）+ character_network（关系）+ narrative_structure（结构位置）。
+- 下游：render_report 报告"人物传记"章节；story_graph 合并；V4 生成器"角色设定"输入。
+- 确定性纪律：aliases / evidence_segments / relationships 均 `sorted(set(...))`；biographies 按出场段数降序，平票按 character_id 字典序。
+
 
 ---
