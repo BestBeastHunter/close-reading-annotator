@@ -51,6 +51,17 @@ python $SKILL/scripts/merge_layers.py --doc-id $DOC --segments $OUT/${DOC}_segme
 python $SKILL/scripts/render_report.py --doc-id $DOC --output-dir $OUT --format md
 ```
 
+**Phase 7：聚合层完成后重生成报告（v3.15.1，T-133）**——报告分两段生成：
+Phase 5 先生成不含聚合分析的报告；跑完 §2.7 聚合层 10 脚本后，重跑 render_report 即可把
+10 个聚合模块（故事概览/叙事结构/实体图谱/场景图/角色弧线/关系网络/因果图/物件链/人物传记/叙事技法）
+与可视化（情感强度曲线 D04、节奏曲线 D05、角色情感弧 D19、目录）并入报告：
+```bash
+python $SKILL/scripts/render_report.py --doc-id $DOC --format html \
+    --agg-dir $OUT/aggregation   # 聚合产物目录（默认 <segments 父目录>/aggregation，可省略）
+```
+HTML 报告含：TOC / 聚合分析 10 模块 / 3 张 SVG 图 / L1-L4 摘要 / 全量逐段详情（`<details>` 折叠，每段四层全字段）。
+MD 报告含：聚合分析 10 模块摘要 + L1-L4 摘要（不含 SVG）。
+
 **验证**：`python $SKILL/scripts/checkpoint.py status --doc-id $DOC --dir $OUT` 全部 100%。
 
 ---
