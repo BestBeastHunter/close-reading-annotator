@@ -67,6 +67,8 @@ TRIGGER_EVENT_D01 = {"激励事件", "高潮", "转折", "下降行动", "结局
 
 # v3.13.2 T-118 新增：第三人称代词列表（用于最近匹配指称消解）
 THIRD_PERSON_PRONOUNS = {"他", "她", "它", "他们", "她们", "它们", "此人", "该人", "这人", "那人"}
+# v3.16.3：第一人称指称——不创建独立人物（避免"我/我们"伪实体），关联最近人物待确认
+FIRST_PERSON_PRONOUNS = {"我", "我们", "咱", "咱们", "自己", "本人"}
 
 # 摘要长度控制（中文字符数，约等于 token 数的 1.5-2 倍）
 MAX_SUMMARY_CHARS = 1200  # 约 600-800 token
@@ -629,9 +631,15 @@ class Scratchpad:
                     if resolved:
                         # 标记为待确认（让 LLM 后续确认）
                         self.mark_pending_confirmation(resolved.canonical_name, target_name)
-                        resolved.last_segment = segment_id
-                        resolved.mention_count += 1
+                        # v3.16.3：不再直接更新 last_segment/mention_count（待 LLM 确认后并入，
+                        # 防第一人称文本中代词大量归最近实体导致计数失真——如《发条橙》丁姆 621 次事故）
                     # 如果无已知人物，跳过（不创建新人物）
+                elif target_name in FIRST_PERSON_PRONOUNS:
+                    # v3.16.3：第一人称指称（我/我们）不新增独立人物——防"我"伪实体；
+                    # 真正的"我"绑定在下方 2.6 节（绑定主角 aliases），此处仅挂待确认
+                    similar = self.find_similar_character(target_name)
+                    if similar:
+                        self.mark_pending_confirmation(similar.canonical_name, target_name)
                 elif not self.is_known_character(target_name):
                     # 检查是否为可能的别名
                     similar = self.find_similar_character(target_name)
@@ -732,7 +740,13 @@ class Scratchpad:
             if emotion:
                 d19 = emotion.get("D19_emotion_analysis") or emotion
                 target = d19.get("target")
-                if target and isinstance(target, str) and target.strip() == "我":
+                # v3.16.3：兼容 dict 形状（{"name":"我"}，与 T-115 同型遗漏；此前只认 str 导致第一人称绑定失效）
+                _tname = ""
+                if isinstance(target, str):
+                    _tname = target
+                elif isinstance(target, dict):
+                    _tname = target.get("name") or ""
+                if _tname.strip() == "我":
                     has_first_person = True
             if structure and not has_first_person:
                 d10 = structure.get("D10_dialogue") or structure.get("D10")

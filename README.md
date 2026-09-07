@@ -1,10 +1,10 @@
-﻿# 精读批注 Skill v3.16.1
+﻿# 精读批注 Skill v3.16.3
 
 > 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）与**全局聚合层**（实体/场景/角色弧线/故事类型/因果链/物件链/故事图/适配器）。
 > 适合：小说精读、故事拆解、叙事分析、文笔拆解、结构化语料构建。
-> **适用语言（v3.16.1 明确为中文定位）**：面向**中文叙事文本**（含中文译本）；英文小说请分析中文译本。
+> **适用语言（v3.16.3 明确为中文定位）**：面向**中文叙事文本**（含中文译本）；英文小说请分析中文译本。
 > 本仓库即**完整可运行的 Skill 包**——放到 TRAE / Cursor / Claude Code 的 skills 目录即可使用，也支持纯手动模式（把 `SKILL.md` 注入任意大模型）。
-> **版本（决策 22 三域解耦）**：skill_version = `3.16.1` / annotation schema_version = `2.10.0` / aggregation schema_version = `3.5.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`/`2.10.0`。
+> **版本（决策 22 三域解耦）**：skill_version = `3.16.3` / annotation schema_version = `2.10.0` / aggregation schema_version = `3.5.0`。批注 JSON 向后兼容 `2.5.0`/`2.6.0`/`2.7.0`/`2.8.0`/`2.9.0`/`2.10.0`。
 
 ---
 
@@ -248,7 +248,7 @@ close-reading-annotator/
 
 | 版本域 | 声明点 | 值 |
 |--------|--------|-----|
-| **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.16.1` |
+| **skill version** | `SKILL.md` frontmatter `version` / README / RUNBOOK | `3.16.3` |
 | **annotation schema_version** | `references/schema.md` §一 / 批注 JSON `schema_version` / annotate_segment.py / examples/llm_wrapper.py | `2.10.0` |
 | **aggregation schema_version** | `references/aggregation-schema.md` / `scripts/aggregation/*.py` | `3.5.0` |
 
@@ -256,7 +256,7 @@ close-reading-annotator/
 > 修改批注层枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**。修改聚合层产物字段：**先改 `references/aggregation-schema.md`，再改 `scripts/aggregation/*.py`**。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
 
 主要里程碑：
-- **v3.16.1**（T-144/T-145）：发布前逐文件总检——修复聚合脚本 D19.target 同型 bug（character_network/character_biographies 从 primary 取 target 恒空 → 改从 emotion 层顶层取 dict{name}）；文档版本三域统一（skill 3.16.1 / annotation 2.10.0 / aggregation 3.5.0）；**批注深度策略修正：全量深度批注为默认与唯一正式档位**（段采样分档仅保留为显式降级选项）。
+- **v3.16.3**（T-144/T-145）：发布前逐文件总检——修复聚合脚本 D19.target 同型 bug（character_network/character_biographies 从 primary 取 target 恒空 → 改从 emotion 层顶层取 dict{name}）；文档版本三域统一（skill 3.16.3 / annotation 2.10.0 / aggregation 3.5.0）；**批注深度策略修正：全量深度批注为默认与唯一正式档位**（段采样分档仅保留为显式降级选项）。
 - **v3.16.0**（T-143）：全面代码审计修复轮——cross_segment 增强信号双重失效（追加进 refs 未落盘 → 移到去重前）、D19.target dict 兼容、causal_graph emotion_targets 类型、preprocess 兜底段 is_polluted、annotate_segment 模式 A _pad_metadata、SKILL §4.6 补 check_quotes 用法。
 - **v3.15.1**（T-133~T-136）：报告重构——四层全量呈现 + 聚合分析 10 模块集成 + 零依赖 SVG 可视化 + 报告分两段生成（--agg-dir）。
 - **v3.15.0**（T-125~T-132）：使用反馈一致性修复——枚举真源统一（validate_output 为唯一真源，D01/D07/D10/D11 四表重写 + D19 50 词全表内联）、输出参数统一 --output-dir、校验报错体验（枚举错误附合法值/span 才走 fuzzy 重试/失败汇总）、check_quotes.py 引文预检、_pad_metadata/hash 算法文档化。
@@ -279,7 +279,7 @@ close-reading-annotator/
 
 ---
 
-## 六、批注深度（全量深度为默认，v3.16.1 修正）
+## 六、批注深度（全量深度为默认，v3.16.3 修正）
 
 **正式流程 = 对全部 segment 执行四层全量深度批注**（structure + interpretation + emotion + craft）→ 跨段 → 合并 → 报告 → 聚合层。本 skill 的产品定位是「深度精读工具」：每一段都执行同等深度的四层分析，**不做按档级/场景的抽样缩减**。
 

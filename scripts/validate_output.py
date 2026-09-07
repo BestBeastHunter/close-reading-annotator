@@ -385,7 +385,7 @@ def validate_interpretation_layer(ann: dict) -> tuple[list[str], list[str]]:
                 if not q:
                     continue
                 if _normalize_whitespace(q) not in norm_src:
-                    errs.append(f"D06 引文不在原文中: {q[:50]!r}")
+                    errs.append(f"D06 引文不在本段原文: {q[:50]!r}（引文必须来自本段 text_span；若句子属相邻段，请从本段复制，勿跨段引用）")
             # v2.10.0 新增：D06._techniques（可选，数组或 null，每项须在枚举中）
             techs = d06.get("_techniques")
             if techs is not None:
@@ -519,7 +519,7 @@ def validate_emotion_layer(ann: dict) -> tuple[list[str], list[str]]:
                     errs.append(f"D19.expression.key_phrases[{i}] 必须是字符串")
                     continue
                 if _normalize_whitespace(kp) not in norm_src:
-                    errs.append(f"D19.expression.key_phrases 不在原文中: {kp[:50]!r}")
+                    errs.append(f"D19.expression.key_phrases 不在本段原文: {kp[:50]!r}（若句子属相邻段，请从本段复制，勿跨段引用）")
         note = exp.get("note")
         if note is not None and not isinstance(note, str):
             errs.append("D19.expression.note 必须是 string 或 null")
@@ -542,7 +542,7 @@ def _validate_craft_entry(
     norm_q = _normalize_whitespace(item_text)
     # 5.B 子串验证
     if norm_q not in norm_src:
-        errs.append(f"{dim} 引文不在原文中: {item_text[:50]!r}")
+        errs.append(f"{dim} 引文不在本段原文: {item_text[:50]!r}（若句子属相邻段，请从本段复制，勿跨段引用）")
         return errs, warns
     # 5.B 位置验证
     span = item.get("span")
@@ -596,7 +596,7 @@ def validate_craft_layer(ann: dict) -> tuple[list[str], list[str]]:
         errs.extend(e)
         warns.extend(w)
         if it.get("type") not in RHETORIC_TYPES:
-            errs.append(f"D14.type={it.get('type')!r} 不在枚举中")
+            errs.append(f"D14.type={it.get('type')!r} 不在枚举中（合法：比喻/拟人/排比/反讽/通感/夸张/对比/象征；注意 对偶/设问 属 D17 句式枚举，勿填此处）")
     # D15 意象
     for it in craft.get("D15_imagery", []) or []:
         e, w = _validate_craft_entry("D15", it, text_src)

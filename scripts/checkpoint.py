@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 scripts/checkpoint.py — 断点续跑状态管理 v2.7.0（含 emotion 层 / emotion_skipped）
@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -54,7 +55,18 @@ def save_checkpoint(checkpoint: dict, base_dir: Path | None = None) -> None:
     tmp = p.with_suffix(".json.tmp")
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(checkpoint, f, ensure_ascii=False, indent=2)
-    tmp.replace(p)
+    # v3.16.3：Windows 文件占用（WinError 5）时重试，仍失败则直接写主文件并警告
+    for _attempt in range(3):
+        try:
+            tmp.replace(p)
+            return
+        except OSError as e:
+            if _attempt < 2:
+                time.sleep(0.2)
+                continue
+            print(f"⚠️ checkpoint 原子替换失败（{e}），已直接写 {p}", file=sys.stderr)
+            with p.open("w", encoding="utf-8") as f:
+                json.dump(checkpoint, f, ensure_ascii=False, indent=2)
 
 
 def mark_layer_completed(doc_id: str, segment_id: str, layer: str, base_dir: Path | None = None) -> bool:

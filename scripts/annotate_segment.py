@@ -521,7 +521,8 @@ def main() -> int:
     seg_ids: list[str] = list(segs.keys())
 
     # checkpoint 定位（v2.5.1：--checkpoint 路径优先，否则 cwd）
-    base_dir = Path(args.checkpoint).parent if args.checkpoint else Path.cwd()
+    # v3.16.3：checkpoint 与层文件同目录（--output-dir），不再默认 cwd（修复路径解析不一致）
+    base_dir = Path(args.checkpoint).parent if args.checkpoint else out_dir
 
     # v3.13.0：Runtime Scratchpad 初始化（优先从 checkpoint 快照恢复，其次从独立文件加载，最后创建新实例）
     scratchpad = None
@@ -609,6 +610,13 @@ def main() -> int:
                 save_scratchpad_snapshot(ckpt, scratchpad)
                 save_checkpoint(ckpt, base_dir)
             print(f"[annotate] 📝 Scratchpad 已保存（{scratchpad.stats()['total_characters']} 人物 / {scratchpad.stats()['total_events']} 事件）→ {scratchpad_path} + checkpoint 快照")
+            # v3.16.3：导出 Scratchpad 摘要快照供外部 agent 后续批次读取（保持人物/事件指称一致）
+            try:
+                sp_sum_path = out_dir / f"{args.doc_id}_scratchpad_summary.md"
+                sp_sum_path.write_text(scratchpad.to_summary(current_segment_index=len(segs)), encoding="utf-8")
+                print(f"[annotate] 📝 Scratchpad 摘要已导出 → {sp_sum_path}（后续批次批注前可读取，保持指称一致）")
+            except Exception as e:
+                print(f"[annotate] ⚠️ Scratchpad 摘要导出失败：{e}")
         return 0
 
     # ---------- 模式 B：--input-json 非交互注入 ----------
@@ -674,6 +682,13 @@ def main() -> int:
                 save_scratchpad_snapshot(ckpt, scratchpad)
                 save_checkpoint(ckpt, base_dir)
             print(f"[annotate] 📝 Scratchpad 已保存（{scratchpad.stats()['total_characters']} 人物 / {scratchpad.stats()['total_events']} 事件）→ {scratchpad_path} + checkpoint 快照")
+            # v3.16.3：导出 Scratchpad 摘要快照供外部 agent 后续批次读取（保持人物/事件指称一致）
+            try:
+                sp_sum_path = out_dir / f"{args.doc_id}_scratchpad_summary.md"
+                sp_sum_path.write_text(scratchpad.to_summary(current_segment_index=len(segs)), encoding="utf-8")
+                print(f"[annotate] 📝 Scratchpad 摘要已导出 → {sp_sum_path}（后续批次批注前可读取，保持指称一致）")
+            except Exception as e:
+                print(f"[annotate] ⚠️ Scratchpad 摘要导出失败：{e}")
         return 0
 
     # ---------- 模式 C：单段（手动 / 外部 LLM）----------
@@ -714,6 +729,13 @@ def main() -> int:
         scratchpad_path = out_dir / f"{args.doc_id}_scratchpad.json"
         scratchpad.save(scratchpad_path)
         print(f"[annotate] 📝 Scratchpad 已保存（{scratchpad.stats()['total_characters']} 人物 / {scratchpad.stats()['total_events']} 事件）→ {scratchpad_path}")
+        # v3.16.3：导出 Scratchpad 摘要快照供外部 agent 后续批次读取（保持人物/事件指称一致）
+        try:
+            sp_sum_path = out_dir / f"{args.doc_id}_scratchpad_summary.md"
+            sp_sum_path.write_text(scratchpad.to_summary(current_segment_index=len(segs)), encoding="utf-8")
+            print(f"[annotate] 📝 Scratchpad 摘要已导出 → {sp_sum_path}（后续批次批注前可读取，保持指称一致）")
+        except Exception as e:
+            print(f"[annotate] ⚠️ Scratchpad 摘要导出失败：{e}")
     return 0
 
 

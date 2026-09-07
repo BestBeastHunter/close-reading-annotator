@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 v2.9 Step 1 — 实体消解（Entity Resolution）
@@ -39,6 +39,29 @@ except Exception:
     pass
 
 SCHEMA_VERSION = "3.0.0"
+
+# v3.16.3：D19.target 抽象物过滤（与 scratchpad v3.15.2 T-142 对齐；entity_resolution 此前漏修）
+# 情感对象可能是"自身命运/音乐/牢笼"等非人物，直接作角色种子会产出伪实体
+NON_PERSON_TARGETS = (
+    "家产", "财产", "钱", "房子", "土地", "家", "牛", "城市", "世界", "命运",
+    "生活", "时间", "枪", "车", "音乐", "牢笼", "锁链", "勾当", "梦", "记忆",
+    "爱情", "友谊", "荣誉", "责任", "自由", "权力", "真相", "秘密", "人生",
+    "夜晚", "灵魂", "名字", "身份", "选择", "未来", "希望", "声音", "影子", "光",
+)
+
+
+def _is_person_target(name: str, craft_chars: set[str]) -> bool:
+    """D19.target 是否为人物：
+    1) 出现在 D18.character（对话者）→ 人物
+    2) 含"的"或超长（>6 字）→ 抽象描述短语
+    3) 命中抽象物词典 → 非人物
+    """
+    if name in craft_chars:
+        return True
+    if len(name) > 6 or "的" in name:
+        return False
+    return not any(t == name or t in name or name.startswith(t) for t in NON_PERSON_TARGETS)
+
 
 # 中文代词（按性别分类）
 PRONOUNS_MALE = {"他", "他自己", "他俩", "他们", "他们俩", "这位先生", "那男人", "这男人"}
@@ -88,13 +111,26 @@ def extract_name_seeds(emotion_rows: list[dict], craft_rows: list[dict]) -> dict
     """
     seeds: dict[str, dict] = {}
 
-    # 从 emotion D19.target.name 提取
+    # v3.16.3：先收集 D18 对话者集合（人物白名单，供 D19.target 过滤参考）
+    craft_chars: set[str] = set()
+    for row in craft_rows:
+        craft = row.get("layers", {}).get("craft", {})
+        d18_list = craft.get("D18_character_voice", [])
+        if isinstance(d18_list, list):
+            for entry in d18_list:
+                if isinstance(entry, dict):
+                    cname = entry.get("character", "").strip()
+                    if cname and len(cname) >= 2 and cname not in PRONOUNS_ALL:
+                        craft_chars.add(cname)
+
+    # 从 emotion D19.target.name 提取（v3.16.3：经 _is_person_target 抽象物过滤）
     for row in emotion_rows:
         emotion = row.get("layers", {}).get("emotion", {})
         target = emotion.get("target")
         if target and isinstance(target, dict):
             name = target.get("name", "").strip()
-            if name and len(name) >= 2 and name not in PRONOUNS_ALL:
+            if (name and len(name) >= 2 and name not in PRONOUNS_ALL
+                    and _is_person_target(name, craft_chars)):
                 if name not in seeds:
                     seeds[name] = {"gender": None, "source": "D19.target", "count": 0}
                 seeds[name]["count"] += 1

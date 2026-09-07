@@ -2,7 +2,7 @@
 
 > **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
 > 完整 schema / 枚举 / 设计决策见 `references/schema.md`（批注层）、`references/aggregation-schema.md`（聚合层）、`SKILL.md`、工作区 `docs/design-decisions.md`。
-> 版本：skill v3.16.1 / annotation schema 2.10.0 / aggregation schema 3.5.0（决策 22 三域解耦）
+> 版本：skill v3.16.3 / annotation schema 2.10.0 / aggregation schema 3.5.0（决策 22 三域解耦）
 
 ---
 
@@ -129,7 +129,7 @@ python scripts/checkpoint.py status --doc-id <doc_id> --dir <out>     # 查看�
 python scripts/checkpoint.py reset-layer --doc-id <doc_id> --layer structure --dir <out>  # 重置某层
 ```
 
-### 2.4 select_segments.py（段采样分层，决策 18 新增；v3.16.1 起仅为显式降级选项）
+### 2.4 select_segments.py（段采样分层，决策 18 新增；v3.16.3 起仅为显式降级选项）
 
 > ⚠️ **默认流程是全量深度批注**——不传 `--plan` 时 run_pipeline 对全部段执行四层全量批注。下面的分档仅在资源受限、需要显式降级时才使用。
 
@@ -449,3 +449,15 @@ python scripts/scratchpad.py --load outputs/annotations/xxx/xxx_scratchpad.json 
 - 独立文件：`{output-dir}/{doc_id}_scratchpad.json`
 - checkpoint 快照：`{output-dir}/{doc_id}_checkpoint.json` → `scratchpad_snapshot`
 
+## 附录：路径解析约定（v3.16.3 统一）
+
+> **一切产物以 `--output-dir` / segments 文件所在目录为权威，不依赖 cwd**。
+
+| 脚本 | checkpoint/输出定位 |
+|------|------|
+| `preprocess.py` | checkpoint 写入 `--output-dir` |
+| `annotate_segment.py` | checkpoint 与层文件同在 `--output-dir`（v3.16.3 起不再默认 cwd）；`--checkpoint` 可显式指定 |
+| `cross_segment.py` / `merge_layers.py` / `render_report.py` | 输入输出默认 segments 同目录（v3.16.3 起不再默认 cwd） |
+| `checkpoint.py status` | `--dir` 指向 checkpoint 所在目录 |
+
+> **Windows（PowerShell）提示**：命令语法与 Linux bash 相同（`python scripts/xxx.py --args`），仅注意：①中文路径用双引号包裹；②`&&` 连接符不可用，改用分号 `;` 或分条执行；③脚本输出 UTF-8，控制台乱码时先 `$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8`。

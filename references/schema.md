@@ -1,4 +1,4 @@
-# references/schema.md — 四层精读批注 Schema 完整定义 v2.10.0
+﻿# references/schema.md — 四层精读批注 Schema 完整定义 v2.10.0
 
 > **⚠️ 本文件是唯一真源。** 所有枚举值、字段格式、span 坐标系、引文校验规则，**只以本文件为准**。
 > SKILL.md、`scripts/validate_output.py`、`templates/*.json` 下游三者的定义必须完全同步于本文件。
@@ -277,7 +277,7 @@ Layer 3（文笔层）所有引用子串的 `span`（D13/D14/D15/D16/D17），**
 ```typescript
 "D06_information_control": {
   "type": "揭示|隐藏|误导|复合",
-  "content": string,   // 引文必须来自原文子串（过 §五 引文校验）
+  "content": string,   // 引文必须来自原文子串（过 §五 引文校验）；【v3.16.3 明确】无引号时整个 content 视为引文，整体必须是 text_span.text 子串——不能自由概括、不能写相邻段原文
   "_techniques": string[] | null   // v2.10.0 新增：信息控制具体技巧数组（可多选）——延迟揭示/选择性披露/视角遮蔽/不可靠叙述者误导/信息过载/误导性伏笔/悬念留白
 } | null
 ```

@@ -164,7 +164,7 @@ def main() -> int:
 
     # v2.5.1：--preserve-curated 默认开——读取现有文件里人工/LLM 核验的关系（非规则生成），
     # 规则重跑只重新生成 _source='rule' 的候选，避免覆盖已核验内容。
-    out_path = Path(args.output) if args.output else (Path.cwd() / f"{args.doc_id}_cross_segment.jsonl")
+    out_path = Path(args.output) if args.output else (Path(args.segments).parent / f"{args.doc_id}_cross_segment.jsonl")
     # v3.15.0 T-128：误传已存在目录 → 自动拼文件名（避免 PermissionError: 把目录当文件打开）
     if out_path.is_dir():
         print(f"⚠️ --output-dir 收到目录（{out_path}），自动拼接文件名 → {out_path / f'{args.doc_id}_cross_segment.jsonl'}", file=sys.stderr)
@@ -355,6 +355,43 @@ def main() -> int:
                             "confidence": 0.5,
                             "note": "D15 意象复用（%s 在多段出现），规则候选，建议 LLM 二分类精排" % imagery,
                         })
+
+        # D06 信息埋设→揭示 伏笔-回收配对（v3.16.3 补：docstring 承诺 v2.6 已含此规则但代码未实现）
+        # 规则：structure 层 D06.type=="隐藏"（埋设 open）→ 后续段 D06.type=="揭示"（回收 close），最近埋设优先配对
+        open_hidden: list[str] = []
+        d06_pairs = 0
+        for _sid in seg_ordered_ids:
+            _srow = structs.get(_sid)
+            if not _srow:
+                continue
+            try:
+                _d06 = _srow["layers"]["structure"]["D06"]
+            except Exception:
+                continue
+            if not isinstance(_d06, dict):
+                continue
+            _dtype = _d06.get("type")
+            _content = _d06.get("content") or ""
+            if isinstance(_content, dict):
+                _content = ""
+            if _dtype == "隐藏":
+                open_hidden.append(_sid)
+            elif _dtype == "揭示" and open_hidden:
+                _src = open_hidden.pop()  # 最近埋设先回收
+                refs.append({
+                    "ref_id": "cf_d06_%04d" % len(refs),
+                    "relation_type": "伏笔-回收",
+                    "_source": "rule_enhanced",
+                    "source": {"segment_id": _src, "chapter": None,
+                               "anchor_text": "信息埋设: %s" % str(_content)[:20], "span": None},
+                    "target": {"segment_id": _sid, "chapter": None,
+                               "anchor_text": "揭示: %s" % str(_content)[:20], "span": None},
+                    "confidence": 0.6,
+                    "note": "D06 信息埋设→揭示配对（规则候选，建议 LLM 二分类精排）",
+                })
+                d06_pairs += 1
+        if d06_pairs:
+            print(f"[cross_segment] 🕳️ D06 伏笔-回收配对：{d06_pairs} 条（_source=rule_enhanced）")
     except Exception as e:
         print("[cross_segment] ⚠️ 增强信号规则执行失败（不影响主流程）: %s" % e)
 

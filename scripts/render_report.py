@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 scripts/render_report.py — 人类可读报告渲染 v3.15.1（报告重构：T-133~T-136）
@@ -1153,13 +1153,13 @@ def main() -> int:
               f"聚合层跑完后用 --agg-dir 重跑本脚本即可。")
 
     if args.format == "html":
-        out_path = Path(args.output) if args.output else (cwd / f"{doc_id}_report.html")
+        out_path = Path(args.output) if args.output else (base_dir / f"{doc_id}_report.html")
         if out_path.is_dir():
             print(f"⚠️ --output-dir 收到目录（{out_path}），自动拼接文件名 → {out_path / f'{doc_id}_report.html'}", file=sys.stderr)
             out_path = out_path / f"{doc_id}_report.html"
         render_html(doc_id, out_path, segs, structs, interps, craft, cross_refs, ckpt, emotions, aggregation)
     else:
-        out_path = Path(args.output) if args.output else (cwd / f"{doc_id}_report.md")
+        out_path = Path(args.output) if args.output else (base_dir / f"{doc_id}_report.md")
         if out_path.is_dir():
             print(f"⚠️ --output-dir 收到目录（{out_path}），自动拼接文件名 → {out_path / f'{doc_id}_report.md'}", file=sys.stderr)
             out_path = out_path / f"{doc_id}_report.md"
