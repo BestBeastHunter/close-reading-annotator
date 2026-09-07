@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 scripts/quality_gate.py — 数据质量看门狗（v3.4.0 / T-033-L1 / ADR-014）
@@ -74,7 +74,15 @@ def load_text(input_path: Path) -> str:
                     texts.append(text)
         return "\n\n".join(texts)
     else:
-        return io.open(input_path, encoding="utf-8", errors="replace").read()
+        # v3.15.0 T-132：编码回退与 preprocess 一致（utf-8 → utf-8-sig → gbk → gb18030），
+        # 避免 GBK 中文原文被 errors=replace 替换成 � 导致乱码误判
+        raw = input_path.read_bytes()
+        for enc in ("utf-8", "utf-8-sig", "gbk", "gb18030"):
+            try:
+                return raw.decode(enc)
+            except UnicodeDecodeError:
+                continue
+        return raw.decode("utf-8", errors="replace")
 
 
 def check_chinese_ratio(text: str, threshold: float) -> dict:

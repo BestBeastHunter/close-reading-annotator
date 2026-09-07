@@ -340,13 +340,24 @@ def _validate_obj(obj: dict, layer: str) -> tuple[list[str], list[str]]:
     return errs, warns
 
 
+def _is_span_error(e: str) -> bool:
+    """判断校验错误是否属于"span/引文定位"类（这类才值得走 fuzzy 自动修复）。
+
+    v3.15.0 T-129 C1：枚举/缺失键/类型错误是确定性错误，重试与修复都无意义，
+    直接失败并给出合法值即可；只有引文/子串/span 类错误才走自动修复。
+    """
+    return any(k in e for k in ("span", "引文", "子串", "切片相似度"))
+
+
 def _commit_with_retry(seg: dict, layer: str, obj: dict, auto_fix: bool = True) -> tuple[bool, str]:
-    """校验（失败自动 span 修复重试 ≤3 轮）。返回 (ok, 说明文本)。
+    """校验（span 类失败自动修复重试 ≤3 轮）。返回 (ok, 说明文本)。
 
     说明文本供调用方打印；失败时内容包含最后一次校验错误详情。
     落盘动作由调用方（_commit_after_validate）在成功返回后执行。
 
     v3.8.1：新增 auto_fix 参数，控制 craft 层校验失败时是否自动修复 span/引文。
+    v3.15.0 T-129：仅"span/引文类"错误触发自动修复；枚举/缺失键等确定性错误
+    直接失败（错误消息已附合法值集合）。
     """
     # 校验 + 自动修复循环
     last_errs: list[str] = []
@@ -361,8 +372,8 @@ def _commit_with_retry(seg: dict, layer: str, obj: dict, auto_fix: bool = True) 
                 + (f"，自动修复 span {repaired_once} 条后通过" if repaired_once else "")
             )
             return True, msg
-        # 仅 craft 层可自动修复（span 缺失/漂移类）；其余层不尝试修复
-        if layer == "craft" and auto_fix:
+        # 仅 craft 层可自动修复（span 缺失/漂移类）；且仅当存在 span 类错误时才尝试
+        if layer == "craft" and auto_fix and any(_is_span_error(e) for e in last_errs):
             changed, unmatched, warnings = repair_craft_row(obj)
             if changed:
                 repaired_once = True
@@ -617,8 +628,9 @@ def main() -> int:
                       file=sys.stderr)
                 continue
             if layer not in layers:
-                print(f"⚠️ {sid} 推断层 {layer} 不在 --layers {layers} 中，跳过", file=sys.stderr)
-                continue
+                # v3.15.0 T-129 C3：行对象自带层类型 → 自动路由加入本次注入集合（不再静默跳过）
+                print(f"🔀 {sid} 行对象自带层 {layer}，自动加入本次注入（原 --layers={layers}）")
+                layers.append(layer)
             if not args.force and is_layer_completed(args.doc_id, sid, layer, base_dir):
                 print(f"⏭ {sid} {layer} 已完成（--force 可重跑）")
                 continue
@@ -632,9 +644,19 @@ def main() -> int:
                     _update_scratchpad_from_obj(scratchpad, sid, layer, obj)
             else:
                 failed.append((sid, layer, msg))
-                print(msg)
         if failed:
-            print(f"\n⚠️ 注入完成：{len(failed)}/{len(objects)} 条失败（已打印明细）")
+            print(f"\n⚠️ 注入完成：{len(objects) - len(failed)} 成功 / {len(failed)} 失败（明细如下，原因已去重）")
+            # v3.15.0 T-129 C2：失败原因去重展示，避免成功行淹没失败信息
+            seen: set[str] = set()
+            for sid2, layer2, reason in failed[:40]:
+                key = reason.split(chr(10))[0][:60]
+                if key in seen:
+                    continue
+                seen.add(key)
+                print(f"   ✖ {sid2} {layer2}: {reason[:400]}")
+                print()
+            if len(failed) > 40:
+                print(f"   ... 其余 {len(failed) - 40} 条失败略（原因多为同类）")
             return 1
         print("\n✅ 注入全部落盘")
         # v3.13.0：保存 Scratchpad

@@ -258,7 +258,7 @@ def validate_structure_layer(ann: dict) -> tuple[list[str], list[str]]:
     # D01
     d01 = struct.get("D01")
     if d01 not in D01_VALUES:
-        errs.append(f"D01={d01!r} 不在枚举中")
+        errs.append(f"D01={d01!r} 不在枚举中（合法值 {sorted(D01_VALUES)}）")
     # D04
     d04 = struct.get("D04")
     if isinstance(d04, dict):
@@ -287,7 +287,7 @@ def validate_structure_layer(ann: dict) -> tuple[list[str], list[str]]:
     d07 = struct.get("D07")
     if isinstance(d07, dict):
         if d07.get("type") not in D07_TYPES:
-            errs.append(f"D07.type={d07.get('type')!r} 不在枚举中")
+            errs.append(f"D07.type={d07.get('type')!r} 不在枚举中（合法值 {sorted(D07_TYPES)}）")
         if not isinstance(d07.get("is_switch_point"), bool):
             errs.append("D07.is_switch_point 必须是 bool")
         # v2.10.0 新增：D07._narrator_identity（可选，字符串或 null）
@@ -312,7 +312,7 @@ def validate_structure_layer(ann: dict) -> tuple[list[str], list[str]]:
     # D10（可 null）
     d10 = struct.get("D10")
     if d10 is not None and d10 not in D10_VALUES:
-        errs.append(f"D10={d10!r} 不在枚举中")
+        errs.append(f"D10={d10!r} 不在枚举中（合法值 {sorted(D10_VALUES)}）")
     # D11（非空数组）
     d11 = struct.get("D11")
     if not isinstance(d11, list) or len(d11) == 0:
@@ -320,7 +320,7 @@ def validate_structure_layer(ann: dict) -> tuple[list[str], list[str]]:
     else:
         for it in d11:
             if it not in D11_VALUES:
-                errs.append(f"D11 含非法值 {it!r}")
+                errs.append(f"D11 含非法值 {it!r}（合法值 {sorted(D11_VALUES)}）")
 
     # v2.10.0 新增：D12_narrative_mode（可选，对象或 null）
     d12 = struct.get("D12_narrative_mode")
@@ -438,7 +438,7 @@ def validate_emotion_layer(ann: dict) -> tuple[list[str], list[str]]:
             return
         em = e.get("emotion")
         if em not in EMOTION_LEXICON_VALUES:
-            errs.append(f"{prefix}.emotion={em!r} 不在 emotion-lexicon.md 词表（50 词）内")
+            errs.append(f"{prefix}.emotion={em!r} 不在 emotion-lexicon.md 词表（50 词）内（合法值 {sorted(EMOTION_LEXICON_VALUES)}）")
         it = e.get("intensity")
         if not (isinstance(it, int) and 1 <= it <= 10):
             errs.append(f"{prefix}.intensity={it!r} 必须是 1-10 整数")

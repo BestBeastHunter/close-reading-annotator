@@ -164,6 +164,10 @@ def main() -> int:
     # v2.5.1：--preserve-curated 默认开——读取现有文件里人工/LLM 核验的关系（非规则生成），
     # 规则重跑只重新生成 _source='rule' 的候选，避免覆盖已核验内容。
     out_path = Path(args.output) if args.output else (Path.cwd() / f"{args.doc_id}_cross_segment.jsonl")
+    # v3.15.0 T-128：误传已存在目录 → 自动拼文件名（避免 PermissionError: 把目录当文件打开）
+    if out_path.is_dir():
+        print(f"⚠️ --output-dir 收到目录（{out_path}），自动拼接文件名 → {out_path / f'{args.doc_id}_cross_segment.jsonl'}", file=sys.stderr)
+        out_path = out_path / f"{args.doc_id}_cross_segment.jsonl"
     preserved: list[dict] = []
     if args.preserve_curated and out_path.is_file():
         try:

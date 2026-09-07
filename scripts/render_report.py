@@ -619,9 +619,17 @@ def main() -> int:
 
     if args.format == "html":
         out_path = Path(args.output) if args.output else (cwd / f"{doc_id}_report.html")
+        # v3.15.0 T-128：误传已存在目录 → 自动拼文件名
+        if out_path.is_dir():
+            print(f"⚠️ --output-dir 收到目录（{out_path}），自动拼接文件名 → {out_path / f'{doc_id}_report.html'}", file=sys.stderr)
+            out_path = out_path / f"{doc_id}_report.html"
         render_html(doc_id, out_path, segs, structs, interps, craft, cross_refs, ckpt, emotions, aggregation)
     else:
         out_path = Path(args.output) if args.output else (cwd / f"{doc_id}_report.md")
+        # v3.15.0 T-128：误传已存在目录 → 自动拼文件名
+        if out_path.is_dir():
+            print(f"⚠️ --output-dir 收到目录（{out_path}），自动拼接文件名 → {out_path / f'{doc_id}_report.md'}", file=sys.stderr)
+            out_path = out_path / f"{doc_id}_report.md"
         render_md(doc_id, out_path, segs, structs, interps, craft, cross_refs, ckpt, emotions)
 
     if ckpt is not None:

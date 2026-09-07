@@ -285,18 +285,28 @@ def main():
     args = parser.parse_args()
     
     if args.dir and args.doc_id:
-        # 批量处理模式
-        ann_dir = Path(args.dir) / args.doc_id
-        emotion_path = ann_dir / f"{args.doc_id}_emotion.jsonl"
-        segments_path = Path(args.dir).parent / "segments" / f"{args.doc_id}_segments.jsonl"
-        
-        if not emotion_path.exists():
-            print(f"❌ emotion 文件不存在: {emotion_path}")
+        # 批量处理模式（v3.15.0 T-127：先探测平铺布局，再回退嵌套布局）
+        base = Path(args.dir)
+        # 候选布局：平铺 <dir>/<doc_id>_emotion.jsonl 优先（当前产物约定），嵌套 <dir>/<doc_id>/<doc_id>_emotion.jsonl 兼容旧版
+        emotion_candidates = [
+            base / f"{args.doc_id}_emotion.jsonl",
+            base / args.doc_id / f"{args.doc_id}_emotion.jsonl",
+        ]
+        segments_candidates = [
+            base / f"{args.doc_id}_segments.jsonl",
+            base / args.doc_id / f"{args.doc_id}_segments.jsonl",
+            base.parent / "segments" / f"{args.doc_id}_segments.jsonl",
+        ]
+        emotion_path = next((c for c in emotion_candidates if c.is_file()), None)
+        segments_path = next((c for c in segments_candidates if c.is_file()), None)
+
+        if emotion_path is None or segments_path is None:
+            print("❌ 批量模式未找到批注产物。已探测：", file=sys.stderr)
+            for c in emotion_candidates + segments_candidates:
+                print(f"   {'✓' if c.is_file() else '✗'} {c}", file=sys.stderr)
+            print("   请改用单文件模式显式指定：--emotion <emotion.jsonl> --segments <segments.jsonl>", file=sys.stderr)
             sys.exit(1)
-        if not segments_path.exists():
-            # 尝试其他路径
-            segments_path = ann_dir / f"{args.doc_id}_segments.jsonl"
-        
+
         stats = cross_validate_emotion_file(emotion_path, segments_path, in_place=args.in_place)
     elif args.emotion and args.segments:
         stats = cross_validate_emotion_file(Path(args.emotion), Path(args.segments), 

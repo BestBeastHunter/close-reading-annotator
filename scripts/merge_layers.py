@@ -73,7 +73,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description="【精读批注 v2.7 Phase 4】四层(+D19 情感可选)嵌套合并 + checkpoint 标记")
     p.add_argument("--doc-id", required=True)
     p.add_argument("--segments", required=True, help="segments.jsonl")
-    p.add_argument("--output", default=None, help="输出 merged.jsonl 路径（默认 <doc_id>_merged.jsonl）")
+    p.add_argument("--output-dir", "--output", dest="output", default=None, help="输出 merged.jsonl 文件路径（默认 <doc_id>_merged.jsonl）")
     args = p.parse_args()
 
     doc_id = args.doc_id
@@ -127,6 +127,10 @@ def main() -> int:
         })
 
     out_path = Path(args.output) if args.output else (base_dir / f"{doc_id}_merged.jsonl")
+    # v3.15.0 T-128：误传已存在目录 → 自动拼文件名
+    if out_path.is_dir():
+        print(f"⚠️ --output-dir 收到目录（{out_path}），自动拼接文件名 → {out_path / f'{doc_id}_merged.jsonl'}", file=sys.stderr)
+        out_path = out_path / f"{doc_id}_merged.jsonl"
     with out_path.open("w", encoding="utf-8") as f:
         for r in merged_rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")

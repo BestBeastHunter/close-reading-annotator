@@ -77,6 +77,8 @@ python $SKILL/scripts/render_report.py --doc-id $DOC --output-dir $OUT --format 
 
 ## 2. CLI 速查表
 
+> **输出参数统一约定（v3.15.0，T-126）**：所有产出型脚本统一用 `--output-dir` 指定输出位置；其中 `merge_layers.py` / `cross_segment.py` / `render_report.py` 的 `--output-dir` 同时兼容旧别名 `--output`（两者等价）。**注意：这 3 个脚本的 `--output-dir` 接收的是"输出文件路径"**（不是目录），不传时默认写到当前目录的 `{doc_id}_<产物名>`。聚合层 10 脚本的 `--output-dir` 才是真正的"输出目录"。
+
 ### 2.1 preprocess.py（Phase 1）
 
 ```bash
@@ -199,6 +201,12 @@ python $AGG/adapters.py --story-graph $OUT/aggregation/${DOC}_story_graph.json \
 ```
 
 **常见坑**：① ⑦缺 `--cross-segment`（需先跑 Phase 3）会直接报错退出；② ⑩的 `participants` 为空≠bug——frontmatter/过渡段无角色出场是合法数据特性（占全部场景 ≤10%）；③ 聚合产物含 `generated_at` 时间戳，字节级对比产物时先排除该字段；④ ⑤narrative_structure 对旧产物（无 v3.6 新字段 _time_type/_narrative_level/_narrator_identity）自动降级为从 D08.time 文本关键词推断，输出中标注 derivation_method；⑤ ⑥writing_techniques 的转场/蒙太奇/场景钩子使用提取的地点关键词（extract_location_keyword）而非完整 D08.space 文本，避免文本微变化导致虚高；时间转场阈值为年份差≥2 或季节变化；⑥writing_techniques 为规则粗筛，后续可用 LLM 精排（同因果链架构）。
+
+### 2.8 数据契约与元数据说明（v3.15.0 新增，T-131）
+
+- **`_pad_metadata` 自动补齐（注入时无需携带原文）**：`annotate_segment.py --input-json` / `--llm-cmd` 模式在落盘前自动从 `segments.jsonl` 对应行补齐 `text_span`（含 text/start_char/end_char/hash），因此 Agent 生成批注 JSON 时**不必把 2000 字原文塞进每行**，只需 `segment_id` + 批注主体（layers.<layer> 或顶层 craft）。
+- **`text_span.hash` 算法**：`sha256(原文 .strip() 且 CRLF/CR→LF 归一化后的 UTF-8 编码)[:16]`（即 `preprocess.compute_hash`）。用于段文本完整性校验；validator 不强校验 hash 值本身。
+- **兜底切分（无章节边界文本）**：原文无独立成行的章节标题时触发"按字符数粗切"，每段行内标记 `pollution_warning: "v3.8.5兜底切分(章节边界识别不足)"`。**这不是错误**——报告会单列"切分质量"小节提示；若原文确有标题但未被识别，检查标题是否为独立成行的纯文本行（≤20 字）或数字/中文数字序列。
 
 ---
 
