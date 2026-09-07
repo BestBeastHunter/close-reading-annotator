@@ -153,9 +153,27 @@ def analyze_freytag(anns: list[dict]) -> dict:
     climax_idx = first_occurrence.get("climax")
     resolution_idx = first_occurrence.get("resolution")
 
+    # v3.16.4 T-151：激励事件容错——批注未标"激励事件"（《发条橙》50 段 D01 无激励事件）时，
+    # 从首个高潮之前最近的强功能段（上升行动/转折/高潮）推断；仍无则回退全书首段。
+    # 推断值带 inciting_incident_derived 标记，下游可区分"标注值"与"推断值"。
+    inciting_derived = None
+    if inciting_idx is None:
+        if climax_idx is not None and climax_idx > 0:
+            for _idx, _d01 in reversed(d01_sequence[:climax_idx]):
+                if _d01 in ("上升行动", "转折", "高潮"):
+                    inciting_idx = _idx
+                    inciting_derived = f"inferred_from_{_d01}_seg_{_idx}"
+                    break
+        if inciting_idx is None:
+            inciting_idx = 0
+            inciting_derived = "fallback_first_segment"
+
     # 结构完整性评估
     required_acts = ["exposition", "inciting_incident", "rising_action", "climax", "falling_action", "resolution"]
     missing_acts = [a for a in required_acts if a not in act_ranges]
+    # v3.16.4：激励事件推断成功后视为已覆盖（不再报 missing）
+    if inciting_derived and "inciting_incident" in missing_acts:
+        missing_acts.remove("inciting_incident")
 
     # 五幕占比是否健康（经验法：上升行动应占最大比例）
     rising_pct = act_ranges.get("rising_action", {}).get("percentage", 0)
@@ -166,6 +184,7 @@ def analyze_freytag(anns: list[dict]) -> dict:
         "act_ranges": act_ranges,
         "key_turning_points": {
             "inciting_incident_segment": inciting_idx,
+            "inciting_incident_derived": inciting_derived,
             "climax_segment": climax_idx,
             "resolution_segment": resolution_idx,
         },

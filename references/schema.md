@@ -326,9 +326,14 @@ Layer 3（文笔层）所有引用子串的 `span`（D13/D14/D15/D16/D17），**
       { "emotion": string, "intensity": number, "polarity": "positive" | "negative" | "neutral" | "mixed" }
     ] | null,
     // 3. 情感对象（可 null：议论段/无明确对象时合法为 null）
+    // v3.16.4 T-155（语义边界）：target.name 应填"叙事实体"——人物/团体/拟人化存在；
+    // 抽象物、事件、概念（自由/音乐/牢笼/命运/做不速之客/勾当）不是情感对象，一律 null。
+    // 人物情感一律用段内实指称呼（"林澜"/"那老头"）；拿不准是否人物时优先 null。
+    // 原因：聚合层 entity_resolution 以 D19.target 为人物种子，抽象物入 target 会污染实体图谱
+    // （《发条橙》审查：41 实体约 30 伪实体，全部来自 target 误填）。
     "target": {
       "entity_id": string | null,  // 分析侧 entity 映射表的角色 ID；skill 内未建映射时填 null
-      "name": string,              // 段内实指称呼（如 "思特里克兰德"）
+      "name": string,              // 段内实指称呼（如 "思特里克兰德"）；非人物实体填 null
       "relation": string | null    // 情感关系类型（如 "admiration"/"contempt"/"grief-for"，自由文本）
     } | null,
     // 4. 情感触发点（可 null：非事件触发/无法定位时合法为 null）

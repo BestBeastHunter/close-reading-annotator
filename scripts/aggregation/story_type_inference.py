@@ -246,6 +246,10 @@ def infer_narrative_style(structure_rows: list[dict], interpretation_rows: list[
     total_with_d07 = 0
 
     for row in structure_rows:
+        # v3.16.4 T-150：代序/前言/引论等非叙事段（section_type=frontmatter）不参与视角统计
+        # 《发条橙》代序 8 段混入（5 全知+2 多视角+1 客观）导致 42 段第一人称被误判为"多视角叙事"
+        if (row.get("section_type") or "").startswith("frontmatter"):
+            continue
         structure = row.get("layers", {}).get("structure", {})
         if not structure:
             structure = row.get("structure", {})
@@ -280,12 +284,21 @@ def infer_narrative_style(structure_rows: list[dict], interpretation_rows: list[
     dominant_perspective = perspective_counter.most_common(1)[0]
     dominant_ratio = dominant_perspective[1] / total_with_d07
     has_switch = switch_points > 0
-    num_perspectives = len(perspective_counter)
+    # v3.16.4 T-150："多视角"是段级呈现标签（单段内多视角切换），不是独立叙述视角类型，
+    # 计入 num_perspectives 会自我膨胀导致误判——统计真实视角种类时排除它
+    real_perspectives = [p for p in perspective_counter if p != "多视角"]
+    num_perspectives = len(real_perspectives)
 
-    # v3.15.2 T-138（F3）：多视角判定收紧——原条件"有切换或≥3种视角"过松，
-    # 《活着》48 段全第一人称、仅 1 处切换也误判为多视角。
-    # 新条件：至少 2 处真实切换 且 视角种类 ≥2（且主导占比 <0.9）才判多视角
-    if (switch_points >= 2 and num_perspectives >= 2 and dominant_ratio < 0.9):
+    # v3.15.2 T-138（F3）+ v3.16.4 T-150：多视角判定收紧——原条件"有切换或≥3种视角"过松，
+    # 《活着》48 段全第一人称、仅 1 处切换也误判为多视角；《发条橙》42/50 第一人称（84%）
+    # 因代序段（全知/客观视角）混入统计也被误判为多视角（confidence 0.96）。
+    # 新条件：至少 2 处真实切换 且 真实视角种类 ≥2 且 主导占比 <0.7 且 次主导占比 ≥0.1
+    # （主导 ≥70% 即视为单一视角主导，代序/引论等少量异质段不改变叙事风格）
+    if len(perspective_counter) >= 2:
+        _second_ratio = perspective_counter.most_common(2)[1][1] / total_with_d07
+    else:
+        _second_ratio = 0.0
+    if (switch_points >= 2 and num_perspectives >= 2 and dominant_ratio < 0.7 and _second_ratio >= 0.1):
         style_type = "多视角叙事"
     elif dominant_perspective[0] == "第一人称" and dominant_ratio > 0.5:
         style_type = "第一人称叙述"

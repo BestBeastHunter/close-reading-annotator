@@ -428,7 +428,11 @@ def _render_aggregation_md(agg: dict, doc_id: str) -> list[str]:
         lines.append("")
         lines.append(f"- 场景总数：{sg.get('total_scenes', 0)}")
         for sc in sg.get("scenes", [])[:10]:
-            lines.append(f"  - {sc.get('scene_id','?')}：{sc.get('summary','')[:50]}")
+            _loc = sc.get('primary_space') or '?'
+            _cnt = sc.get('segment_count', 0)
+            _fn = sc.get('primary_function') or '?'
+            _chars = "、".join(c.get('name', '') for c in (sc.get('characters_present') or [])[:3]) or '无'
+            lines.append(f"  - {sc.get('scene_id','?')}：{_loc}（{_cnt} 段，{_fn}）出场：{_chars}")
         lines.append("")
     if "character_arcs" in agg:
         ca = agg["character_arcs"]
@@ -488,9 +492,13 @@ def _render_aggregation_md(agg: dict, doc_id: str) -> list[str]:
         wt = agg["writing_techniques"]
         lines.append("### ✍️ 叙事技法")
         lines.append("")
-        stats = wt.get("statistics", {})
-        if stats:
-            lines.append(f"- 技法实例：{stats.get('total_techniques', 0)}，密度：{stats.get('density_per_segment', 0):.2f}/段")
+        _oa = wt.get("overall_assessment", {})
+        lines.append(f"- 技法实例：{_oa.get('total_technique_instances', 0)}，密度：{_oa.get('technique_density_per_segment', 0):.2f}/段，风格：{_oa.get('writing_style', '?')}")
+        for _t in _oa.get("dominant_techniques", [])[:5]:
+            if isinstance(_t, list) and len(_t) == 2:
+                lines.append(f"  - {_t[0]}：{_t[1]} 例")
+            elif isinstance(_t, str):
+                lines.append(f"  - {_t}")
         for t in wt.get("techniques", [])[:10]:
             lines.append(f"  - {t.get('technique','')}：{t.get('count',0)} 处")
         lines.append("")
@@ -539,8 +547,12 @@ def _render_aggregation_html(agg: dict, doc_id: str) -> str:
         parts.append('<table border="1" cellpadding="6" style="border-collapse:collapse">')
         parts.append('<tr><th>场景</th><th>摘要</th></tr>')
         for sc in sg.get("scenes", [])[:15]:
+            _loc = sc.get('primary_space') or '?'
+            _cnt = sc.get('segment_count', 0)
+            _fn = sc.get('primary_function') or '?'
+            _chars = "、".join(c.get('name', '') for c in (sc.get('characters_present') or [])[:3]) or '无'
             parts.append(f'<tr><td>{html.escape(str(sc.get("scene_id","")))}</td>'
-                         f'<td>{html.escape(str(sc.get("summary",""))[:80])}</td></tr>')
+                         f'<td>{html.escape(f"{_loc}（{_cnt} 段，{_fn}）出场：{_chars}")[:120]}</td></tr>')
         parts.append('</table>')
 
     if "character_arcs" in agg:
@@ -617,12 +629,15 @@ def _render_aggregation_html(agg: dict, doc_id: str) -> str:
 
     if "writing_techniques" in agg:
         wt = agg["writing_techniques"]
-        stats = wt.get("statistics", {})
-        density = stats.get("density_per_segment", 0)
-        parts.append(f'<h3 id="agg-write">✍️ 叙事技法（{stats.get("total_techniques", 0)} 实例 · '
-                     f'{density:.2f}/段）</h3>')
+        _oa = wt.get("overall_assessment", {})
+        density = _oa.get("technique_density_per_segment", 0)
+        parts.append(f'<h3 id="agg-write">✍️ 叙事技法（{_oa.get("total_technique_instances", 0)} 实例 · '
+                     f'{density:.2f}/段 · {html.escape(str(_oa.get("writing_style", "?")))}）</h3>')
         parts.append('<table border="1" cellpadding="6" style="border-collapse:collapse">')
         parts.append('<tr><th>技法</th><th>次数</th><th>示例段</th></tr>')
+        for _t in _oa.get("dominant_techniques", [])[:5]:
+            if isinstance(_t, list) and len(_t) == 2:
+                parts.append(f'<tr><td>{html.escape(str(_t[0]))}</td><td>{_t[1]}</td><td class="muted">主导</td></tr>')
         for t in wt.get("techniques", [])[:15]:
             parts.append(f'<tr><td>{html.escape(str(t.get("technique","")))}</td>'
                          f'<td>{t.get("count",0)}</td>'
@@ -1058,20 +1073,57 @@ def render_md(doc_id: str, out_path: Path, segs: list[dict], structs: dict, inte
     if craft:
         golden: list[tuple[str, dict]] = []
         rhet_counter: dict[str, int] = {}
+        imagery_counter: dict[str, int] = {}
+        syntax_counter: dict[str, int] = {}
+        voice_counter: dict[str, int] = {}
         for sid, c in craft.items():
             cr = _craft_of(c)
             for it in cr.get("D13_golden_lines", []) or []:
                 golden.append((sid, it))
             for it in cr.get("D14_rhetoric", []) or []:
-                rt = it.get("type", "")
+                rt = it.get("type", "") if isinstance(it, dict) else ""
                 if rt:
                     rhet_counter[rt] = rhet_counter.get(rt, 0) + 1
+            for it in cr.get("D15_imagery", []) or []:
+                _it = it.get("type", "") if isinstance(it, dict) else ""
+                if _it:
+                    imagery_counter[_it] = imagery_counter.get(_it, 0) + 1
+            for it in cr.get("D17_syntax", []) or []:
+                _st = it.get("type", "") if isinstance(it, dict) else ""
+                if _st:
+                    syntax_counter[_st] = syntax_counter.get(_st, 0) + 1
+            for it in cr.get("D18_character_voice", []) or []:
+                _ch = it.get("character", "") if isinstance(it, dict) else ""
+                if _ch:
+                    voice_counter[_ch] = voice_counter.get(_ch, 0) + 1
+        # v3.16.4 T-153：MD 版补 Layer 3 文笔层标题（HTML 已有，MD 此前散落无标题）
+        lines.append("")
+        lines.append("## 🖋️ Layer 3 文笔层摘要")
+        lines.append("")
         if rhet_counter:
             lines.append("")
             lines.append("**修辞手法统计（D14）**")
             lines.append("")
             for rt, c in sorted(rhet_counter.items(), key=lambda x: -x[1]):
                 lines.append(f"- {rt}：{c} 处")
+        if imagery_counter:
+            lines.append("")
+            lines.append("**意象类型统计（D15）**")
+            lines.append("")
+            for rt, c in sorted(imagery_counter.items(), key=lambda x: -x[1]):
+                lines.append(f"- {rt}：{c} 处")
+        if syntax_counter:
+            lines.append("")
+            lines.append("**句式类型统计（D17）**")
+            lines.append("")
+            for rt, c in sorted(syntax_counter.items(), key=lambda x: -x[1]):
+                lines.append(f"- {rt}：{c} 处")
+        if voice_counter:
+            lines.append("")
+            lines.append("**人物语言指纹（D18，Top 8）**")
+            lines.append("")
+            for rt, c in sorted(voice_counter.items(), key=lambda x: -x[1])[:8]:
+                lines.append(f"- {rt}：{c} 段")
         if golden:
             lines.append("")
             lines.append("**D13 佳句 Top 10（按 quality_score 降序）**")
@@ -1122,6 +1174,21 @@ def main() -> int:
     segs = _load_jsonl(seg_path)
     base_dir = seg_path.parent
     agg_dir = Path(args.agg_dir) if args.agg_dir else (base_dir / "aggregation")
+
+    # v3.16.4 T-153：--output-dir/--output 兼容"目录"与"文件路径"两种传法——
+    # 规则：①已是文件 → 直接用；②带 .md/.html 扩展名 → 当文件路径；
+    # ③其余（目录，含尚不存在的）→ 自动 mkdir 并拼 <doc_id>_report.<fmt>。
+    _out_arg = args.output
+    if _out_arg:
+        _out_path = Path(_out_arg)
+        _is_dir_like = (
+            _out_path.is_dir()
+            or (not _out_path.is_file() and _out_path.suffix.lower() not in (".md", ".html", ".htm"))
+        )
+        if _is_dir_like:
+            _out_path.mkdir(parents=True, exist_ok=True)
+            _out_path = _out_path / f"{doc_id}_report.{args.format}"
+        args.output = str(_out_path)
 
     structs = _index_by_segment_id(_load_jsonl(base_dir / f"{doc_id}_structure.jsonl"))
     interps = _index_by_segment_id(_load_jsonl(base_dir / f"{doc_id}_interpretation.jsonl"))

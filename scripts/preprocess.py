@@ -47,6 +47,9 @@ CHAPTER_PATTERNS: list[tuple[str, str]] = [
     # 中文章节标题
     (r"^\s*第[一二三四五六七八九十百千万零两]+\s*章\b.*$", "chapter"),
     (r"^\s*第[0-9]+\s*章\b.*$", "chapter"),
+    # v3.16.4 T-152：部/卷/集结构（"第一部（1）""第二卷"）——此前缺失导致《发条橙》退化
+    (r"^\s*第[一二三四五六七八九十百千万零两]+\s*[部卷集][节回]?\s*.*$", "chapter"),
+    (r"^\s*Part\s+[0-9IVXLCDM]+\b.*$", "chapter"),
     # 仅数字的章标题（兼容「一」「十二」单独一行）
     (r"^\s*[一二三四五六七八九十百千万零两]+\s*$", "chapter"),
     # 英文章节
@@ -460,35 +463,50 @@ def main() -> int:
     if fm_warning:
         print(f"[preprocess] ⚠️ {fm_warning}")
 
+    # v3.16.4 T-152：代序/引论小节边界降级——第一个强正文章节（chapter/epilogue）之前的
+    # "一、二、三"式小节标题（代序/前言/评论文章）不构成正文章节，并入 frontmatter 区域。
+    # 案例：《发条橙》"一、《发条橙》的故事与后现代社会"等 6 段代序被当 body 批注，
+    # 其"第三人称全知/多视角"视角与"自由意志"主题污染 D07/D09 统计（故事类型误判"多视角叙事"）。
+    strong_start = None
+    _strong_re = re.compile(
+        r'^\s*(第[一二三四五六七八九十百千万零两\d]+[章部卷集回节]|'
+        r'Chapter|CHAPTER|序章|楔子|尾声|后记|Prologue|Epilogue)'
+    )
+    for _i, _b in enumerate(boundaries):
+        if _b["section_type"] in ("chapter", "epilogue") and _strong_re.match(_b.get("text") or ""):
+            strong_start = _i
+            break
+    if strong_start and strong_start > 0:
+        _fm_end_new = boundaries[strong_start]["position"]
+        print(f"[preprocess] v3.16.4：正文起点（{boundaries[strong_start]['name'][:20]}）前的 "
+              f"{strong_start} 个边界并入 frontmatter（代序/前言/引论区域）")
+        frontmatter_text = original[:_fm_end_new]
+        frontmatter_end = _fm_end_new
+        boundaries = boundaries[strong_start:]
+
     all_segments: list[dict] = []
     seg_counter = 0
 
-    # --- frontmatter 作为第一段（修复 #4）---
+    # --- frontmatter 区域（修复 #4 + v3.16.4 T-152 多段化）---
     if fm_warning is None and frontmatter_text.strip():
         # 有章节边界 → frontmatter 独立 seg（section_type=frontmatter）
-        seg_text = frontmatter_text
-        rel_s, rel_e = 0, frontmatter_end
-        g_start, g_end = 0, frontmatter_end
-        _assert_text_slice_matches(original, g_start, g_end, original[g_start:g_end])
-        seg_text = original[g_start:g_end]
-        if seg_text.strip():
-            all_segments.append({
-                "segment_index": seg_counter,
-                "segment_id": f"{args.doc_id}_seg_{seg_counter:04d}",
-                "chapter": "frontmatter",
-                "chapter_index": 0,
-                "section_type": "frontmatter",
-                "text": seg_text,
-                "start_char": g_start,
-                "end_char": g_end,
-                "hash": compute_hash(seg_text),
-                "approx_tokens": estimate_tokens(seg_text),
-                "context_prev": "",
-                "context_next": "",
-                "is_polluted": False,
-                "pollution_warning": None,
-            })
-            seg_counter += 1
+        # v3.16.4：frontmatter 区域可能较长（含目录+出版者记+代序+前言），
+        # 不再只产出 1 段，改用 split_chapter_text 按 max_tokens 切多段。
+        fm_chunks, seg_counter = split_chapter_text(
+            frontmatter_text,
+            chapter_name="frontmatter",
+            chapter_index=0,
+            section_type="frontmatter",
+            base_offset=0,
+            original=original,
+            max_tokens=args.max_tokens,
+            doc_id=args.doc_id,
+            seg_counter_start=0,
+        )
+        for _s in fm_chunks:
+            _s["is_polluted"] = False
+            _s["pollution_warning"] = None
+        all_segments.extend(fm_chunks)
     elif fm_warning is not None:
         # 没有任何章节边界（修复 #3）：frontmatter=全文，但退化到按长度切分，section_type=frontmatter
         warning_val = fm_warning

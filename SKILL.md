@@ -1,19 +1,19 @@
 ﻿---
 name: close-reading-annotator
-version: 3.16.3
+version: 3.16.4
 description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言、craft层自动修复(v3.8.1)、三项校准功能(v3.8.2：quality_score/confidence/DLUT交叉验证)。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v3.16.3
+# 四层精读批注 Skill v3.16.4
 
 对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
 **核心原则**：每段每层独立落盘 → 断点续跑 → Layer 4 二阶段执行 → 四层合并输出 → 聚合层拼图出全局叙事结构。
 
 > **版本声明（决策 22：三版本域解耦）**：
-> - **skill version** = `3.16.3`（本文件 frontmatter = README = RUNBOOK）。最近变更：v3.16.3 《发条橙》实战反馈修复轮（13 项，P0×4/P1×7/P2×2）——①checkpoint/输出路径统一（不再默认 cwd，checkpoint 与层文件同目录）；②save_checkpoint 加 Windows 文件占用重试；③D06 伏笔-回收配对规则实现（此前仅 docstring 承诺）；④entity_resolution 对齐 scratchpad NON_PERSON_TARGETS 抽象物过滤（修复 41 伪实体）；⑤scratchpad 代词回指不再固化计数 + 第一人称 dict 兼容（防"我"伪实体与"丁姆 621 次"式计数失真）；⑥校验报错分级（引文相邻段提示 + D14 合法值）；⑦input-json 模式导出 Scratchpad 摘要快照（{doc_id}_scratchpad_summary.md）；⑧SKILL.md 瘦身至 31K（版本历史迁移 references/version-history.md）。上一版本 v3.16.1：发布前逐文件总检（T-144/T-145）①聚合脚本 D19.target 同型 bug 修复；②文档版本三域统一；③批注深度策略修正：全量深度批注为默认且唯一正式档位。**完整版本历史见 `references/version-history.md` 与文末「版本历史」表。**
+> - **skill version** = `3.16.4`（本文件 frontmatter = README = RUNBOOK）。最近变更：v3.16.4 《发条橙》产物审查修复轮（7 项）——①story_type 视角判定收紧（frontmatter 过滤 + 真实视角种类 + 0.7/0.1 阈值，修复 84% 第一人称误判"多视角叙事"）；②narrative_structure 激励事件容错（无 D01 激励事件时从首个高潮前强功能段逆查推断 + inciting_incident_derived 标记）；③preprocess 代序/引论边界降级（强正文章节前的中文序列小节并入 frontmatter）+ 新增 第X部/卷/Part 章节模式；④render_report 场景图/叙事技法真实字段渲染 + MD 版 Layer 3 文笔层摘要 + --output-dir 目录语义；⑤SKILL.md 零填充预防纪律（D01/D06/D12/D17）+ annotation-examples 补 D12/D17 示例；⑥scratchpad 抽象物词表提升模块级并与 entity_resolution 39 词同源 + schema.md D19.target 语义边界。上一版本 v3.16.3：《发条橙》实战反馈修复轮（13 项）。上一版本 v3.16.1：发布前逐文件总检（T-144/T-145）①聚合脚本 D19.target 同型 bug 修复；②文档版本三域统一；③批注深度策略修正：全量深度批注为默认且唯一正式档位。**完整版本历史见 `references/version-history.md` 与文末「版本历史」表。**
 > - **annotation schema_version** = `2.10.0`（真源 `references/schema.md` §一 = 批注 JSON `schema_version` = annotate_segment.py / examples/llm_wrapper.py）。v2.10.0 新增 5 个可选字段（D07._narrator_identity / D08._time_type / D08._narrative_level / D06._techniques / D12_narrative_mode），全部允许 null，旧产物零迁移。
 > - **aggregation schema_version** = `3.5.0`（真源 `references/aggregation-schema.md` = `scripts/aggregation/*.py`）。变更历史见文末「版本历史」表。
 > - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0 / 2.8.0 / 2.9.0 / 2.10.0`（旧产物版本分支豁免，不迁移；v2.10.0 新增可选字段缺失时视为 null 放行）。
@@ -577,6 +577,19 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 - **Structure 七维 `per_dimension` 必须填 0–1 数字**（即使主值 null 也表示「我确定没值」）；Interpretation/Craft 可 null。P4 触发段 `per_dimension.D19` 必填。
 - status 对齐（`status != superseded` 时）：overall ≥0.8 → `confirmed`（打 tentative=warning）；<0.8 → `tentative`（打 confirmed=**error**）。
 
+### 4.8 零填充预防纪律（v3.16.4 T-154）
+
+> **来源**：《发条橙》50 段全量批注审查发现 D06 信息控制 0/50、D12 叙事话语 0/50、D17 句式 0/50、D01 激励事件 0/50——不是文本没有这些特征，而是引导不足导致 Agent 惯性填 null/空数组。以下维度**默认都要判断**，只有明确不适用才空/null + 理由：
+
+| 维度 | 填充纪律 | 明确不适用才空/null 的判据 |
+|:--|:--|:--|
+| **D01** | 每段必填；**激励事件不限于全书第一段**——它是"打破主角生活平衡的触发事件"，可出现在任何位置（《月亮与六便士》的激励事件是第 7 段思特里克兰德出走；《发条橙》是亚历克斯在柯罗瓦奶吧决定去干一票的那段）。连续多段 `无法判断` 要警惕漏标 | 整段纯叙述衔接、无任何情节推进（罕见） |
+| **D06** | L2 每段**必须判断**信息控制行为：作者本段是否在揭示/隐藏/误导/复合控制信息？没有 → null + null_reasons 写明"纯直陈段无信息控制" | 只有完全直陈、零信息差时才 null |
+| **D12** | 每段都判断叙事话语模式：场景（对话+动作实时展示）/ 概述（压缩叙述）/ 停顿（描写暂停）/ 省略（时间跳跃）/ 摘要。中文叙事几乎每段可判，不确定先选最接近的 | 仅当四种模式都无法对应（极罕见）才 null |
+| **D17** | 每段检测句式特征：排比 / 长短交替 / 倒装 / 独词句 / 对偶 / 设问。中文文本高频出现对偶/设问/长短交替，**D14 修辞里的"对偶/设问"要写到这里**（D14 只有比喻/拟人/排比/反讽/通感/夸张/对比/象征） | 整段无显著句式特征才空数组 |
+
+> **实操提示**：D06 的 `content` 无引号时整体视为引文（必须是本段原文子串）——填充时直接抄本段关键句，不要自由概括，也不要引用相邻段。
+
 ---
 
 ## 5. 质量约束（每条都必须满足）
@@ -648,6 +661,7 @@ python $AGG/adapters.py --story-graph <out>/aggregation/{doc_id}_story_graph.jso
 
 | 版本 | 日期 | 变化摘要 |
 |------|------|------|
+| **3.16.4** | 2026-09-07 | 《发条橙》产物审查 7 项修复（T-150~T-155）：①story_type 视角判定收紧（frontmatter 过滤+真实视角种类+0.7/0.1 阈值，修复 84% 第一人称误判多视角叙事）；②narrative_structure 激励事件容错（无 D01 激励事件时从首个高潮前强功能段逆查推断+derived 标记）；③preprocess 代序/引论边界降级（强正文章节前中文序列小节并入 frontmatter）+ 第X部/卷/Part 章节模式；④render_report 场景图/叙事技法真实字段渲染+MD Layer 3 文笔层摘要+--output-dir 目录语义；⑤SKILL.md 零填充预防纪律（D01/D06/D12/D17）+ annotation-examples 补 D12/D17 示例；⑥scratchpad 抽象物词表提升模块级并与 entity_resolution 39 词同源+schema.md D19.target 语义边界 |
 | **3.16.1** | 2026-09-07 | 发布前逐文件总检（T-144/T-145）：聚合脚本 D19.target 同型 bug 修复、文档版本三域统一、全量深度批注为唯一正式档位 |
 | **3.16.0** | 2026-09-07 | T-143：cross_segment 增强信号落盘修复（v3.8.7 遗留） |
 | **3.15.x** | 2026-09-07 | T-128/T-129：输出参数统一 --output-dir、枚举真源 14 维统一、确定性错误直败、报错去重 |

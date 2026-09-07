@@ -69,6 +69,14 @@ TRIGGER_EVENT_D01 = {"激励事件", "高潮", "转折", "下降行动", "结局
 THIRD_PERSON_PRONOUNS = {"他", "她", "它", "他们", "她们", "它们", "此人", "该人", "这人", "那人"}
 # v3.16.3：第一人称指称——不创建独立人物（避免"我/我们"伪实体），关联最近人物待确认
 FIRST_PERSON_PRONOUNS = {"我", "我们", "咱", "咱们", "自己", "本人"}
+# v3.16.4 T-155：与 entity_resolution.py 的 NON_PERSON_TARGETS（39 词）保持同一真源——
+# 此前为函数内局部 13 词（每次调用重建），"音乐/牢笼/自由/做不速之客"等抽象物被当人物种子，
+# 污染聚合层实体图谱（《发条橙》41 实体约 30 伪实体）。改词表先改 entity_resolution.py 再同步本处。
+NON_PERSON_TARGETS = ("家产", "财产", "钱", "房子", "土地", "家", "牛",
+                      "城市", "世界", "命运", "生活", "时间", "枪", "车",
+                      "音乐", "牢笼", "锁链", "勾当", "梦", "记忆", "爱情", "友谊",
+                      "荣誉", "责任", "自由", "权力", "真相", "秘密", "人生", "夜晚",
+                      "灵魂", "名字", "身份", "选择", "未来", "希望", "声音", "影子", "光")
 
 # 摘要长度控制（中文字符数，约等于 token 数的 1.5-2 倍）
 MAX_SUMMARY_CHARS = 1200  # 约 600-800 token
@@ -619,9 +627,8 @@ class Scratchpad:
                     target_name = ""
             else:
                 target_name = ""
-            # v3.15.2 T-142（F7）：情感对象若是明确物/抽象词（非人物），不入人物表
-            NON_PERSON_TARGETS = ("家产", "财产", "钱", "房子", "土地", "家", "牛",
-                                  "城市", "世界", "命运", "生活", "时间", "枪", "车")
+            # v3.15.2 T-142（F7）+ v3.16.4 T-155：情感对象若是明确物/抽象词（非人物），
+            # 不入人物表——词表见模块级 NON_PERSON_TARGETS（与 entity_resolution.py 同源 39 词）
             if target_name and any(t == target_name or target_name.startswith(t) for t in NON_PERSON_TARGETS):
                 target_name = ""
             if target_name:
