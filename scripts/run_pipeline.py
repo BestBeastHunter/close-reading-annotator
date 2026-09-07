@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 scripts/run_pipeline.py — Phase 1–8 一体化驱动（v3.17.0 流程重构：连续编号、无任何可选步骤）
@@ -192,7 +192,7 @@ def _run_aggregation(phase_no: int, doc_id: str, out_dir: Path, agg_out: Path,
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="【精读批注 v3.17.0】Phase 1–8 一体化驱动（连续编号；无任何可选步骤；聚合/校准/精确切分均为必须）+ 断点续跑")
+        description="【精读批注 v3.17.1】Phase 1–8 一体化驱动（连续编号；无任何可选步骤；聚合/校准/精确切分均为必须）+ 断点续跑")
     p.add_argument("--input", default=None, help="原始文本文件（Phase 1 切分需要）")
     p.add_argument("--doc-id", required=True, help="文档 ID")
     p.add_argument("--output-dir", default=".", help="所有产物的输出目录（默认当前）")
@@ -272,20 +272,23 @@ def main() -> int:
         boundary_path = Path(args.scene_boundary) if args.scene_boundary else (
             out_dir / f"{doc_id}_scene_boundary.json")
         if args.force or not final_segments_path.is_file():
-            # 2a. 场景边界判断（无现成 boundary 时调 LumberChunker wrapper）
+            # 2a. 场景边界判断（无现成 boundary 时：Agent 主流程产文件 / 命令行替代脚本自动判断）
             if not boundary_path.is_file():
                 wrapper = SCRIPTS.parent / "examples" / "scene_boundary_wrapper.py"
                 if not wrapper.is_file():
-                    print(f"❌ Phase 2 找不到 LumberChunker wrapper：{wrapper}", file=sys.stderr)
+                    print(f"❌ Phase 2 找不到命令行替代脚本 scene_boundary_wrapper.py：{wrapper}", file=sys.stderr)
+                    print("   主流程：Agent 按 SKILL.md §3.2 的判断 Prompt 逐对判断相邻段，", file=sys.stderr)
+                    print(f"   将结果写入 {boundary_path}（或用 --scene-boundary 指定）后重跑。", file=sys.stderr)
                     return 1
                 ok = _run_phase(2, doc_id, out_dir, [
                     str(wrapper), "--segments", str(segments_path),
                     "--output", str(boundary_path), "--doc-id", doc_id,
                 ])
                 if not ok:
-                    print("❌ Phase 2 场景边界判断失败："
-                          "需设置 SCENE_BOUNDARY_API_KEY 或提供 --scene-boundary 文件"
-                          "（LumberChunker 精确切分为必须步骤，不允许跳过）", file=sys.stderr)
+                    print("❌ Phase 2 场景边界判断失败（LumberChunker 为必须步骤，不允许跳过）", file=sys.stderr)
+                    print("   主流程：Agent 按 SKILL.md §3.2 的判断 Prompt 手动判断 →", file=sys.stderr)
+                    print(f"   产出 {boundary_path}（或 --scene-boundary 传入）→ 重跑。", file=sys.stderr)
+                    print("   替代：设置 SCENE_BOUNDARY_API_KEY 用命令行脚本自动判断。", file=sys.stderr)
                     return 1
             else:
                 print(f"⏭ Phase 2a 跳过：{boundary_path} 已存在（--force 重跑）")

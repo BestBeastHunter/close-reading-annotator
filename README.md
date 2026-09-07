@@ -1,4 +1,4 @@
-﻿# 精读批注 Skill v3.17.0
+﻿# 精读批注 Skill v3.17.1
 
 > 对叙事文本做 **四层结构化精读批注** 的完整 Skill 包：结构层（叙事功能/情绪/节奏/视角/时空/对话功能/描写类型）、阐释层（信息控制/主题/叙述者可靠性）、情感层（角色情感/情感对象/段内情感弧）、文笔层（佳句/修辞/意象/词汇/句式/人物语言指纹），外加跨段层（伏笔链/段间关系）与**全局聚合层**（实体/场景/角色弧线/故事类型/因果链/物件链/故事图/适配器）。
 > 适合：小说精读、故事拆解、叙事分析、文笔拆解、结构化语料构建。
@@ -97,13 +97,8 @@ python scripts/preprocess.py \
 粗切分按章节+长度机械切分，可能一个 segment 含多个场景 → 精读被混淆。本阶段用 Agent LLM 做场景边界判断（只标记不切分），再由脚本按边界重切为场景级 segments。
 
 ```bash
-# 2a 场景边界判断（wrapper 需要 LLM API；也可 Agent 手动判断，Prompt 见 SKILL.md §3.2）
-export SCENE_BOUNDARY_API_KEY="your-api-key"
-python examples/scene_boundary_wrapper.py \
-  --segments outputs/annotations/my_novel_01/my_novel_01_segments.jsonl \
-  --output outputs/annotations/my_novel_01/my_novel_01_scene_boundary.json \
-  --doc-id my_novel_01
-
+# 2a 场景边界判断（主流程：Agent 用判断 Prompt 逐对判断相邻段，产出 scene_boundary.json，
+#    Prompt 见 SKILL.md §3.2，无需任何 API key；命令行替代：examples/scene_boundary_wrapper.py）
 # 2b 重排为场景级 segments（必须）
 python scripts/reshape_segments.py \
   --segments outputs/annotations/my_novel_01/my_novel_01_segments.jsonl \
@@ -304,6 +299,7 @@ close-reading-annotator/
 > 修改批注层枚举/字段约束：**先改 `references/schema.md`，再同步 templates / validate_output.py / SKILL.md 速览**。修改聚合层产物字段：**先改 `references/aggregation-schema.md`，再改 `scripts/aggregation/*.py`**。完整历史见 [SKILL.md](SKILL.md) 底部「版本历史」。
 
 主要里程碑：
+- **v3.17.1**：Phase 2a 口径明确——场景边界判断以 Agent prompt 判断为主流程（无需外部 API key），wrapper 降为命令行自动化替代。
 - **v3.17.0**：流程架构重构（Owner 指令：无任何可选步骤、全部必须、连续编号）——run_pipeline 重构为连续 Phase 1–8（质量门+粗切 → LumberChunker 精确切分必须 → 四层全量批注 → 跨段 → 聚合 12 脚本 → 合并 → 校准移到报告前 → 报告最后一步）；聚合层由"可选但推荐"升级为必须 + report 补 story_graph/adapters 渲染（12 模块全显示）；Phase 3.5 精排移除、段采样分层从工作流移除（--plan 参数删除）；质量门集成 Phase 1a 硬门槛。
 - **v3.16.3**（T-144/T-145）：发布前逐文件总检——修复聚合脚本 D19.target 同型 bug（character_network/character_biographies 从 primary 取 target 恒空 → 改从 emotion 层顶层取 dict{name}）；文档版本三域统一（skill 3.16.3 / annotation 2.10.0 / aggregation 3.5.0）；**批注深度策略修正：全量深度批注为默认与唯一正式档位**（段采样分档仅保留为显式降级选项）。
 - **v3.16.0**（T-143）：全面代码审计修复轮——cross_segment 增强信号双重失效（追加进 refs 未落盘 → 移到去重前）、D19.target dict 兼容、causal_graph emotion_targets 类型、preprocess 兜底段 is_polluted、annotate_segment 模式 A _pad_metadata、SKILL §4.6 补 check_quotes 用法。

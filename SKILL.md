@@ -1,19 +1,19 @@
 ﻿---
 name: close-reading-annotator
-version: 3.17.0
+version: 3.17.1
 description: 对小说、剧本等叙事文本进行四层精读批注。输出结构层(叙事功能/情绪/节奏/视角/时空/对话功能/描写类型) + 阐释层(信息控制/主题/叙述者可靠性) + 情感层(角色情感/情感对象/段内情感弧，P4 触发式) + 文笔层(佳句/修辞/意象/词汇/句式/人物语言指纹) + 跨段层(伏笔链/段间关系)。支持断点续跑、层粒度重跑、引文子串校验、span 位置断言、craft层自动修复(v3.8.1)、三项校准功能(v3.8.2：quality_score/confidence/DLUT交叉验证)。适用于：小说精读、故事拆解、叙事分析、文笔拆解。不用于技术文档、论文、代码。
 author: BestBeastHunter
 license: MIT
 ---
 
-# 四层精读批注 Skill v3.17.0
+# 四层精读批注 Skill v3.17.1
 
 对叙事文本进行**四层结构化批注**（外加 L2.5 情感分析）：Layer 1「语义-结构层」、Layer 2「阐释-判断层」、Layer 2.5「情感分析层」（D19，P4 触发式）、Layer 3「文笔-语言层」、Layer 4「跨段-关系层」。批注之上叠加**全局聚合层**（v2.9/v3.0，`scripts/aggregation/`）：实体消解 → 场景图 → 角色弧线 → 故事类型推断 → 因果链/物件链 → 故事图合并 → 适配器输出。
 
 **核心原则**：每段每层独立落盘 → 断点续跑 → Layer 4 二阶段执行 → 四层合并输出 → 聚合层拼图出全局叙事结构。
 
 > **版本声明（决策 22：三版本域解耦）**：
-> - **skill version** = `3.17.0`（本文件 frontmatter = README = RUNBOOK）。最近变更：v3.17.0 流程架构重构（Owner 指令：无任何可选步骤、全部必须、连续编号）——①run_pipeline 重构为连续 Phase 1–8：质量门+粗切→LumberChunker 精确切分（必须）→逐段批注（四层全量）→跨段→聚合层（12 脚本全跑，修复 --aggregation 死代码）→合并→校准（移到报告前）→报告（最后一步）；②聚合层由"可选但推荐"升级为必须，report 展示全部 12 模块（补 story_graph/adapters 渲染）；③Phase 3.5 LLM 精排（可选）移除、段采样分层从工作流移除（--plan 参数删除）、全量深度为唯一正式流程；④run_pipeline 集成质量门为 Phase 1a 硬门槛。上一版本 v3.16.4：《发条橙》产物审查修复轮（7 项）。**完整版本历史见 `references/version-history.md` 与文末「版本历史」表。**
+> - **skill version** = `3.17.1`（本文件 frontmatter = README = RUNBOOK）。最近变更：v3.17.1 Phase 2a 口径明确——场景边界判断以 **Agent prompt 判断为主流程**（无需任何外部 API key），wrapper 降级为命令行自动化替代（非 Agent 环境用）。同步：SKILL.md §3.2 / run_pipeline 报错指引 / README / RUNBOOK。上一版本 v3.17.0：流程架构重构（Owner 指令：无任何可选步骤、全部必须、连续编号）——①run_pipeline 重构为连续 Phase 1–8：质量门+粗切→LumberChunker 精确切分（必须）→逐段批注（四层全量）→跨段→聚合层（12 脚本全跑，修复 --aggregation 死代码）→合并→校准（移到报告前）→报告（最后一步）；②聚合层由"可选但推荐"升级为必须，report 展示全部 12 模块（补 story_graph/adapters 渲染）；③Phase 3.5 LLM 精排（可选）移除、段采样分层从工作流移除（--plan 参数删除）、全量深度为唯一正式流程；④run_pipeline 集成质量门为 Phase 1a 硬门槛。上一版本 v3.16.4：《发条橙》产物审查修复轮（7 项）。**完整版本历史见 `references/version-history.md` 与文末「版本历史」表。**
 > - **annotation schema_version** = `2.10.0`（真源 `references/schema.md` §一 = 批注 JSON `schema_version` = annotate_segment.py / examples/llm_wrapper.py）。v2.10.0 新增 5 个可选字段（D07._narrator_identity / D08._time_type / D08._narrative_level / D06._techniques / D12_narrative_mode），全部允许 null，旧产物零迁移。
 > - **aggregation schema_version** = `3.5.0`（真源 `references/aggregation-schema.md` = `scripts/aggregation/*.py`）。变更历史见文末「版本历史」表。
 > - 校验器向后兼容 `schema_version: 2.5.0 / 2.6.0 / 2.7.0 / 2.8.0 / 2.9.0 / 2.10.0`（旧产物版本分支豁免，不迁移；v2.10.0 新增可选字段缺失时视为 null 放行）。
@@ -131,24 +131,11 @@ Phase 1 粗切分（preprocess.py）→ Phase 2a 场景边界判断（Agent LLM 
 
 **Phase 2a：场景边界判断（输出 scene_boundary.json）**
 
-> **标准方式**：官方 wrapper 脚本（`examples/scene_boundary_wrapper.py`），需要 LLM API：
-> ```bash
-> # 1. 设置 API 环境变量（兼容 OpenAI / DeepSeek / 任何 OpenAI 兼容接口）
-> export SCENE_BOUNDARY_API_KEY="your-api-key"
-> export SCENE_BOUNDARY_BASE_URL="https://api.deepseek.com/v1"  # 可选
-> export SCENE_BOUNDARY_MODEL="deepseek-chat"  # 可选
+> **主流程（Agent prompt 判断，无需任何外部 API key，v3.17.1 明确）**：Agent 自身即 LLM——本阶段与 Phase 3 逐段批注同构：按下方判断 Prompt 逐对判断相邻段（seg_N, seg_N+1）是否场景边界，收集结果写 `scene_boundary.json`，交给 Phase 2b 重排。**这是标准执行路径。**
 >
-> # 2. 运行 wrapper（一行命令）
-> python examples/scene_boundary_wrapper.py \
->   --segments <out>/{doc_id}_segments.jsonl \
->   --output <out>/{doc_id}_scene_boundary.json \
->   --doc-id <doc_id>
-> ```
->
-> 也支持 `--dry-run`（只打印将调用的对数，不实际调用）、`--max-pairs`（限制处理对数，用于测试）、`--retries`（失败重试次数）。
+> **替代方式（命令行自动化，非 Agent 环境）**：`examples/scene_boundary_wrapper.py` 用 OpenAI 兼容 API 批量判断，适合无 Agent 的纯命令行用户（需设 `SCENE_BOUNDARY_API_KEY`，可选 `SCENE_BOUNDARY_BASE_URL` / `SCENE_BOUNDARY_MODEL`），一行命令产出同样的 `scene_boundary.json`。Agent 工作流无需此脚本。
 
-**手动方式（不使用 wrapper 时）**：
-
+对每对相邻 segment（seg_N, seg_N+1），判断两者之间是否是**场景边界**。判断维度：
 对每对相邻 segment（seg_N, seg_N+1），判断两者之间是否是**场景边界**。判断维度：
 
 | 维度 | 边界信号 |
@@ -617,10 +604,11 @@ python scripts/render_report.py --doc-id <doc_id> --format md --agg-dir <out>/ag
 
 > **完整版本历史（3.9.0 及更早全部明细 + ADR 关联）已迁移至 `references/version-history.md`**。
 
-**当前版本 3.17.0**——最近变更见文件头版本声明块。近期版本摘要：
+**当前版本 3.17.1**——最近变更见文件头版本声明块。近期版本摘要：
 
 | 版本 | 日期 | 变化摘要 |
 |------|------|------|
+| **3.17.1** | 2026-09-07 | Phase 2a 口径明确：场景边界判断以 Agent prompt 判断为主流程（无需外部 API key），wrapper 降为命令行自动化替代（SKILL.md §3.2 / run_pipeline 报错指引 / README / RUNBOOK 同步） |
 | **3.17.0** | 2026-09-07 | 流程架构重构（Owner 指令：无任何可选步骤、全部必须、连续编号）：①run_pipeline 重构为连续 Phase 1–8（质量门+粗切→LumberChunker 精确切分必须→四层全量批注→跨段→聚合 12 脚本→合并→校准→报告最后一步）；②聚合层由"可选但推荐"升级为必须 + report 补 story_graph/adapters 渲染（12 模块全显示）；③Phase 3.5 精排/段采样分层/--plan 移除，全量深度唯一；④质量门集成 Phase 1a |
 | **3.16.4** | 2026-09-07 | 《发条橙》产物审查 7 项修复（T-150~T-155）：①story_type 视角判定收紧（frontmatter 过滤+真实视角种类+0.7/0.1 阈值，修复 84% 第一人称误判多视角叙事）；②narrative_structure 激励事件容错（无 D01 激励事件时从首个高潮前强功能段逆查推断+derived 标记）；③preprocess 代序/引论边界降级（强正文章节前中文序列小节并入 frontmatter）+ 第X部/卷/Part 章节模式；④render_report 场景图/叙事技法真实字段渲染+MD Layer 3 文笔层摘要+--output-dir 目录语义；⑤SKILL.md 零填充预防纪律（D01/D06/D12/D17）+ annotation-examples 补 D12/D17 示例；⑥scratchpad 抽象物词表提升模块级并与 entity_resolution 39 词同源+schema.md D19.target 语义边界 |
 | **3.16.1** | 2026-09-07 | 发布前逐文件总检（T-144/T-145）：聚合脚本 D19.target 同型 bug 修复、文档版本三域统一、全量深度批注为唯一正式档位 |

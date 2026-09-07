@@ -2,7 +2,7 @@
 
 > **定位**：给 Agent / 新运行者的速查手册。比 SKILL.md 短，只记"怎么跑、报错怎么修、常见坑"。
 > 完整 schema / 枚举 / 设计决策见 `references/schema.md`（批注层）、`references/aggregation-schema.md`（聚合层）、`SKILL.md`、工作区 `docs/design-decisions.md`。
-> 版本：skill v3.17.0 / annotation schema 2.10.0 / aggregation schema 3.5.0（决策 22 三域解耦）
+> 版本：skill v3.17.1 / annotation schema 2.10.0 / aggregation schema 3.5.0（决策 22 三域解耦）
 
 ---
 
@@ -29,7 +29,7 @@ python $SKILL/scripts/quality_gate.py --input book.txt --out $OUT/${DOC}_quality
 python $SKILL/scripts/preprocess.py --input book.txt --doc-id $DOC --output-dir $OUT
 
 # Phase 2：LumberChunker 场景语义精确切分（必须，不允许跳过）
-# 2a 场景边界判断（wrapper 需要 LLM API；也可 Agent 手动判断，Prompt 见 SKILL.md §3.2）
+# 2a 场景边界判断（主流程：Agent 按 SKILL.md §3.2 的 Prompt 逐对判断，产出 scene_boundary.json，无需 API key；命令行替代：wrapper）
 export SCENE_BOUNDARY_API_KEY="your-api-key"   # 兼容 OpenAI/DeepSeek 等
 python $SKILL/examples/scene_boundary_wrapper.py \
     --segments $OUT/${DOC}_segments.jsonl --output $OUT/${DOC}_scene_boundary.json --doc-id $DOC
@@ -164,7 +164,7 @@ python scripts/run_pipeline.py --doc-id <doc_id> --output-dir <out> --phases 5
 # 断点续跑是默认行为（读 checkpoint 跳过已完成阶段/片段）；--force 强制重跑
 ```
 
-**Phase 2 需配置 LumberChunker API**：`SCENE_BOUNDARY_API_KEY`（+ 可选 `SCENE_BOUNDARY_BASE_URL` / `SCENE_BOUNDARY_MODEL`）。若已生成 `{doc_id}_scene_boundary.json`，可用 `--scene-boundary <file>` 直接走 reshape 重排（跳过边界判断调用）。
+**Phase 2 边界判断两种方式**：主流程为 Agent 按 SKILL.md §3.2 的 Prompt 逐对判断产出 `scene_boundary.json`（无需 API key）；命令行替代为 wrapper（需 `SCENE_BOUNDARY_API_KEY`，可选 `SCENE_BOUNDARY_BASE_URL` / `SCENE_BOUNDARY_MODEL`）。若已生成 `{doc_id}_scene_boundary.json`，可用 `--scene-boundary <file>` 直接走 reshape 重排（跳过边界判断调用）。
 
 ### 2.6 其他脚本
 
