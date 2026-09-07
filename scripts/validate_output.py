@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 scripts/validate_output.py — 统一校验脚本 v2.7.0（含 D19/emotion 文件校验）
@@ -123,12 +123,21 @@ def _normalize_whitespace(s: str) -> str:
 
 
 def _extract_quoted(text: str) -> list[str]:
-    """从自由文本提取引号内容：「」、""、《》。"""
+    """从自由文本提取引文片段（T-137）。
+
+    有引号（「」/""/《》）→ 只取引号内内容（原行为）；
+    无任何引号 → 把整个 content 视为引文（修复 F1：此前无引号时返回空列表，
+    导致 D06 子串校验被全部绕过——《活着》48/48 段全绕过）。
+    """
     if not text:
         return []
     pattern = re.compile(r"[「」\"\"《》]")
     parts = pattern.split(text)
-    return [p.strip() for i, p in enumerate(parts) if i % 2 == 1 and p.strip()]
+    quoted = [p.strip() for i, p in enumerate(parts) if i % 2 == 1 and p.strip()]
+    if quoted:
+        return quoted
+    stripped = text.strip()
+    return [stripped] if stripped else []
 
 
 def _seq_ratio(a: str, b: str) -> float:

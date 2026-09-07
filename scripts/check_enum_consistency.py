@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 scripts/check_enum_consistency.py — 枚举一致性自检（v3.15.0 新增，T-125）
@@ -57,7 +57,7 @@ CHECKED_CONSTANTS = {
 
 def load_validator_constants() -> dict[str, set[str]]:
     """用 ast 从 validate_output.py 提取集合常量。"""
-    tree = ast.parse(VALIDATOR.read_text(encoding="utf-8"))
+    tree = ast.parse(VALIDATOR.read_text(encoding="utf-8-sig"))
     out: dict[str, set[str]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and len(node.targets) == 1:

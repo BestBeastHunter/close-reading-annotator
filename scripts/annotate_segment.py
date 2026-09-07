@@ -288,22 +288,24 @@ def _update_scratchpad_from_obj(scratchpad: Scratchpad, segment_id: str, layer: 
     """v3.13.0：从批注结果中提取新人物/事件，更新 Scratchpad。"""
     try:
         layers = obj.get("layers") or {}
+        # v3.15.2 T-142：段文本传给 scratchpad（D01 事件描述真实化需要）
+        _seg_text = ((obj.get("text_span") or {}).get("text") or "")
         if layer == "structure":
             structure = layers.get("structure") or obj.get("structure")
             if structure:
-                scratchpad.update_from_annotation(segment_id, structure=structure)
+                scratchpad.update_from_annotation(segment_id, structure=structure, segment_text=_seg_text)
         elif layer == "emotion":
             emotion = layers.get("emotion") or obj.get("emotion")
             if emotion:
-                scratchpad.update_from_annotation(segment_id, emotion=emotion)
+                scratchpad.update_from_annotation(segment_id, emotion=emotion, segment_text=_seg_text)
         elif layer == "craft":
             craft = layers.get("craft") or obj.get("craft")
             if craft:
-                scratchpad.update_from_annotation(segment_id, craft=craft)
+                scratchpad.update_from_annotation(segment_id, craft=craft, segment_text=_seg_text)
         elif layer == "interpretation":
             interp = layers.get("interpretation") or obj.get("interpretation")
             if interp:
-                scratchpad.update_from_annotation(segment_id, interpretation=interp)
+                scratchpad.update_from_annotation(segment_id, interpretation=interp, segment_text=_seg_text)
     except Exception as e:
         print(f"[annotate] ⚠️ Scratchpad 更新失败（{segment_id} {layer}）：{e}")
 

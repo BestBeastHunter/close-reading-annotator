@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 v2.9 Step 3 — 角色弧线重建（Character Arcs）
@@ -214,6 +214,12 @@ def classify_arc(trajectory: list[dict]) -> dict:
     # 最终状态
     final_polarity = polarities[-1]
     final_intensity = intensities[-1] if intensities else None
+    # v3.15.2 T-141（F6）：强度趋势辅助（《活着》类"反讽式平静"文本极性多为 neutral，
+    # 单看极性趋势会漏掉情绪张力变化）
+    inten_first = sum(intensities[:len(intensities) // 2]) / max(len(intensities[:len(intensities) // 2]), 1)
+    inten_second = sum(intensities[len(intensities) // 2:]) / max(len(intensities[len(intensities) // 2:]), 1)
+    intensity_trend = round(inten_second - inten_first, 2) if intensities else 0.0
+    final_emotion = trajectory[-1].get("emotion") if trajectory else None
 
     # 分类
     if trend > 0.3 and final_polarity > 0:
@@ -242,6 +248,8 @@ def classify_arc(trajectory: list[dict]) -> dict:
         "variance": round(variance, 2),
         "final_polarity": final_polarity,
         "final_intensity": final_intensity,
+        "intensity_trend": intensity_trend,  # v3.15.2 T-141
+        "final_emotion": final_emotion,      # v3.15.2 T-141
     }
 
 
@@ -305,19 +313,28 @@ def infer_character_traits(character_name: str, emotion_rows: list, craft_rows: 
                                 trait_scores[trait]["segments"].add(seg_id)
 
     # 2. 从 D19 情感序列推断（持续情感模式→性格特质）
+    # v3.15.2 T-141（F6）修正：D19.target 语义是"情感对象"（如福贵悲伤→target=爹），
+    # 不是情感主体。此前按 target 匹配角色名导致：①v2.8 直接格式下 target 在 emotion
+    # 顶层而非 primary 内（取不到→全空）；②即使取到也把特质误分配给情感对象。
+    # 正确语义：角色在其"出场段"（名字/别名出现在段文本）内的段情感归属该角色，
+    # 与 character_arcs 的 trajectory 构建逻辑对齐。
     char_emotions = defaultdict(list)
+    seg_texts = {
+        (s.get("segment_id") or ""): ((s.get("text_span") or {}).get("text") or "")
+        for s in segments
+    }
     for row in emotion_rows:
         emotion = row.get("layers", {}).get("emotion", {})
         if not emotion:
             emotion = row.get("emotion", {})
         primary = emotion.get("D19_emotion_analysis") or emotion.get("primary") or {}
-        if isinstance(primary, dict):
-            target = primary.get("target", "")
-            emo = primary.get("emotion", "")
-            intensity = primary.get("intensity", 5)
-            seg_id = row.get("segment_id", "")
-            if target and (target in character_name or character_name in target):
-                char_emotions[emo].append({"intensity": intensity, "segment_id": seg_id})
+        if not isinstance(primary, dict):
+            continue
+        emo = primary.get("emotion", "")
+        intensity = primary.get("intensity", 5)
+        seg_id = row.get("segment_id", "")
+        if character_name and character_name in seg_texts.get(seg_id, ""):
+            char_emotions[emo].append({"intensity": intensity, "segment_id": seg_id})
 
     # 情感模式→性格映射
     emotion_to_trait = {
@@ -338,7 +355,7 @@ def infer_character_traits(character_name: str, emotion_rows: list, craft_rows: 
                 for i in instances:
                     trait_scores[trait]["segments"].add(i["segment_id"])
 
-    # 3. 从 craft 层修辞/意象偏好推断（性格侧面）
+    # 3. 从 craft 层修辞/意象/金句推断（性格侧面）
     for row in craft_rows:
         craft = row.get("layers", {}).get("craft") or row.get("craft") or {}
         seg_id = row.get("segment_id", "")
@@ -351,6 +368,20 @@ def infer_character_traits(character_name: str, emotion_rows: list, craft_rows: 
                     for kw in info["keywords"]:
                         if kw in detail:
                             trait_scores[trait]["score"] += info["weight"] * 0.3
+                            trait_scores[trait]["segments"].add(seg_id)
+        # v3.15.2 T-141：D13 金句文本匹配——仅当金句含角色名时归属该角色
+        # （D13 无角色归属字段，全文金句若不加过滤会把同一批特质分配给所有角色）
+        d13 = craft.get("D13_golden_lines", []) or []
+        for item in d13:
+            if isinstance(item, dict):
+                text = item.get("text", "")
+                if not (character_name and character_name in text):
+                    continue
+                for trait, info in TRAIT_LEXICON.items():
+                    for kw in info["keywords"]:
+                        if kw in text:
+                            trait_scores[trait]["score"] += info["weight"] * 0.4
+                            trait_scores[trait]["evidence"].append(text[:50])
                             trait_scores[trait]["segments"].add(seg_id)
 
     # 排序并取 top-5

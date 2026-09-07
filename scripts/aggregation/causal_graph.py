@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 v3.0 Step 4 — 因果链生成（Causal Graph）
@@ -407,6 +407,84 @@ def build_event_attributes(seg_id: str, info_index: dict[str, dict]) -> dict:
     }
 
 
+DEGRADED_KEY_D01 = {"激励事件", "转折", "高潮"}
+
+def generate_degraded_edges(
+    structure_rows: list[dict], interpretation_rows: list[dict],
+    d01_index: dict[str, str],
+) -> tuple[list[dict], list[str]]:
+    """v3.15.2 T-140（F5）：cross_refs 无因果/伏笔边时的输入降级路径。
+
+    仅在主路径 0 边时调用，产出弱因果边并标注来源：
+      A. D06 隐藏→揭示：type=隐藏 的段 与 其后的 type=揭示 段 → ENABLE 边（伏笔-回收）；
+      B. D01 关键功能段序列：激励事件/转折/高潮 按段序两两相邻 → ENABLE 边（叙事功能递进）。
+    返回 (degraded_edges, notes)。
+    """
+    edges: list[dict] = []
+    notes: list[str] = []
+    edge_id_counter = 1
+
+    def _mk_edge(src_seg: str, dst_seg: str, edge_type: str, src_ref: str, note: str) -> dict | None:
+        s_d01 = d01_index.get(src_seg)
+        t_d01 = d01_index.get(dst_seg)
+        if not s_d01 or not t_d01:
+            return None
+        nonlocal edge_id_counter
+        e = {
+            "edge_id": f"de_{edge_id_counter:04d}",
+            "edge_type": edge_type,
+            "source": {"segment_id": src_seg, "chapter": None, "d01_function": s_d01, "anchor_text": None},
+            "target": {"segment_id": dst_seg, "chapter": None, "d01_function": t_d01, "anchor_text": None},
+            "confidence": 0.5,
+            "evidence": {"source_ref_id": src_ref, "relation_type": "伏笔-回收", "note": note},
+            "validation": {"direction_check": "passed", "d01_coverage": "passed",
+                           "validated_by": "d01_function_sequence_v1", "degraded": True},
+        }
+        edge_id_counter += 1
+        return e
+
+    # 降级 A：D06 隐藏→揭示
+    open_hides: list[str] = []
+    interp_by_seg = {}
+    for row in interpretation_rows:
+        interp_by_seg[row.get("segment_id", "")] = row
+    n_a = 0
+    for sid in sorted(interp_by_seg, key=get_segment_index):
+        interp = (interp_by_seg[sid].get("layers") or {}).get("interpretation") or {}
+        d06 = interp.get("D06_information_control") or {}
+        t = d06.get("type") if isinstance(d06, dict) else None
+        if t == "隐藏":
+            open_hides.append(sid)
+        elif t == "揭示" and open_hides:
+            hide_sid = open_hides.pop(0)
+            if get_segment_index(sid) > get_segment_index(hide_sid):
+                e = _mk_edge(hide_sid, sid, EDGE_TYPE_ENABLE, "d06_hide_reveal_degraded",
+                             "D06信息控制：隐藏段→揭示段（降级路径A）")
+                if e:
+                    edges.append(e)
+                    n_a += 1
+    if n_a:
+        notes.append(f"降级A（D06 隐藏→揭示）生成 {n_a} 条边")
+
+    # 降级 B：D01 关键功能段序列
+    key_segs = []
+    for row in sorted(structure_rows, key=lambda r: get_segment_index(r.get("segment_id", ""))):
+        sid = row.get("segment_id", "")
+        if d01_index.get(sid) in DEGRADED_KEY_D01:
+            key_segs.append(sid)
+    n_b = 0
+    for i in range(len(key_segs) - 1):
+        e = _mk_edge(key_segs[i], key_segs[i + 1], EDGE_TYPE_ENABLE, "d01_function_sequence_degraded",
+                     "D01关键功能段序列递进（降级路径B）")
+        if e:
+            edges.append(e)
+            n_b += 1
+    if n_b:
+        notes.append(f"降级B（D01 关键功能段序列）生成 {n_b} 条边")
+
+    return edges, notes
+
+
 def generate_causal_edges(cross_refs: list[dict], d01_index: dict[str, str]) -> tuple[list[dict], list[dict]]:
     """
     从 cross_refs 生成因果边。
@@ -554,6 +632,7 @@ def main() -> int:
     p.add_argument("--cross-segment", required=True, help="cross_segment.jsonl 路径")
     p.add_argument("--structure", required=True, help="structure.jsonl 路径（用于D01校验端）")
     p.add_argument("--emotion", default=None, help="emotion.jsonl 路径（v3.13.1 可选，用于event_attributes情感基调）")
+    p.add_argument("--interpretation", default=None, help="interpretation.jsonl 路径（v3.15.2 T-140 可选，用于降级路径A D06隐藏→揭示）")
     p.add_argument("--craft", default=None, help="craft.jsonl 路径（v3.13.1 可选，用于event_attributes参与者）")
     p.add_argument("--doc-id", required=True, help="文档 ID")
     p.add_argument("--output-dir", required=True, help="输出目录")
@@ -584,6 +663,11 @@ def main() -> int:
     structure_rows = load_jsonl(structure_path)
     emotion_rows = load_jsonl(emotion_path) if emotion_path else []
     craft_rows = load_jsonl(craft_path) if craft_path else []
+    interpretation_path = Path(args.interpretation) if args.interpretation else None
+    if interpretation_path and not interpretation_path.is_file():
+        print(f"⚠️  interpretation 文件不存在，跳过（降级路径A不可用）：{interpretation_path}", file=sys.stderr)
+        interpretation_path = None
+    interpretation_rows = load_jsonl(interpretation_path) if interpretation_path else []
     d01_index = build_d01_index(structure_rows)
 
     print(f"📖 加载 cross_refs: {len(cross_refs)} 条")
@@ -618,6 +702,12 @@ def main() -> int:
     # 生成因果边
     print("\n🚀 Step 1: 从 cross_refs 生成因果边（D01校验端过滤反向边和孤立边）...")
     edges, filtered = generate_causal_edges(cross_refs, d01_index)
+    degraded_notes: list[str] = []
+    if not edges:
+        # v3.15.2 T-140（F5）：主路径 0 边时启用输入降级（D06 隐藏→揭示 / D01 关键功能段序列）
+        print("   主路径 0 因果边，启用输入降级路径（D06/D01 直接提取）...")
+        edges, degraded_notes = generate_degraded_edges(structure_rows, interpretation_rows, d01_index)
+        print(f"   降级生成因果边: {len(edges)} 条（备注: {degraded_notes or '无'}）")
     print(f"   生成因果边: {len(edges)} 条")
     print(f"   被过滤: {len(filtered)} 条")
     for f_item in filtered:
@@ -750,7 +840,10 @@ def main() -> int:
         },
         "_metadata": {
             "method": "rule_based_v3_13_1",
-            "edge_sources": ["cross_segment.因果", "cross_segment.伏笔-回收"],
+            "edge_sources": (["cross_segment.因果", "cross_segment.伏笔-回收"]
+                             if not degraded_notes else
+                             ["degraded.d06_hide_reveal", "degraded.d01_function_sequence"]),
+            "degraded_notes": degraded_notes,
             "note": "纯规则引擎，基于cross_segment已有关系；D01仅用于校验端过滤，不生成边（专家评审C修正）。v3.13.1新增event_hierarchy/causal_structure/event_attributes和salience_score显赫度评分。",
             "salience_formula": "causal_position(0.4) + narrative_length(0.3) + recurrence_frequency(0.3)",
             "core_event_criteria": f"salience_score>={CORE_EVENT_SALIENCE_THRESHOLD} 且 D01∈{sorted(CORE_EVENT_D01)}",

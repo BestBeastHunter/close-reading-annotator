@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 v2.9 Step 4 — 故事类型推断（Story Type Inference）
@@ -60,6 +60,11 @@ GENRE_KEYWORDS = {
              "市井", "公寓", "地铁", "写字楼"],
     "成长": ["成长", "青春", "校园", "励志", "蜕变", "觉醒", "自我实现", "追梦", "迷茫", "顿悟",
              "成熟", "理想", "追求", "灵魂", "自由", "天才", "创作"],
+    # v3.15.2 T-138：现实/文学类通用信号（F2 修复——《活着》D09 top 标签希望/死亡/贫苦/疾病/饥荒
+    # 未参与题材判定。词条均为跨作品通用主题词，不绑定具体作品名）
+    "现实": ["苦难", "命运", "死亡", "贫穷", "贫苦", "疾病", "饥荒", "家庭", "亲情", "乡土",
+             "土地", "生存", "活着", "平凡", "生活", "离别", "生死", "回忆", "岁月", "劳动",
+             "希望", "绝望", "悲欢", "人性", "时代"],
 }
 
 # v3.8.9 T-074：题材关键词权重（科幻类提升权重，因为科幻作品常含战争/武器元素）
@@ -72,6 +77,7 @@ GENRE_WEIGHTS = {
     "奇幻": 1.0,
     "都市": 1.0,
     "成长": 1.0,
+    "现实": 1.0,  # v3.15.2 T-138
 }
 
 # 极性分数映射
@@ -153,8 +159,8 @@ def infer_genre(interpretation_rows: list[dict], structure_rows: list[dict],
     sorted_genres = sorted(genre_scores.items(), key=lambda x: x[1], reverse=True)
 
     if not sorted_genres:
-        # 没有匹配到关键词，用 Top 标签作为参考
-        top_tags = tag_counter.most_common(3)
+        # 没有匹配到关键词，用 Top 标签作为参考（v3.15.2 T-138：输出未匹配标签列表）
+        top_tags = tag_counter.most_common(5)
         return {
             "primary": "其他",
             "secondary": [],
@@ -163,6 +169,7 @@ def infer_genre(interpretation_rows: list[dict], structure_rows: list[dict],
                 "primary_signal": f"D09 Top标签: {', '.join(f'{t}({c}次)' for t, c in top_tags)}，未匹配到标准题材关键词",
                 "secondary_signal": "",
             },
+            "signal_not_matched": [f"{t}({c}次)" for t, c in top_tags],
             "tag_distribution": dict(tag_counter.most_common(10)),
         }
 
@@ -198,7 +205,23 @@ def infer_genre(interpretation_rows: list[dict], structure_rows: list[dict],
     elif tag_diversity < 0.5:
         confidence += 0.1
 
+    # v3.15.2 T-138：题材得分绝对量信号——大量 D09 标签指向同一题材时补强
+    # （《活着》标签分散导致 concentration 低，但"现实"得分 49 充分）
+    if primary_score >= 20:
+        confidence += 0.1
+    elif primary_score >= 8:
+        confidence += 0.05
+
     confidence = min(confidence, 0.95)
+
+    # v3.15.2 T-138：未参与题材判定的高频 D09 标签（evidence 补充，避免信息丢失）
+    matched_tags = set()
+    for tag in tag_counter:
+        for genre, keywords in GENRE_KEYWORDS.items():
+            if any(kw in tag for kw in keywords):
+                matched_tags.add(tag)
+                break
+    not_matched = [f"{t}({c}次)" for t, c in tag_counter.most_common(5) if t not in matched_tags]
 
     return {
         "primary": primary,
@@ -207,6 +230,7 @@ def infer_genre(interpretation_rows: list[dict], structure_rows: list[dict],
         "evidence": {
             "primary_signal": f"D09标签中'{primary}'相关关键词出现{primary_score}次，占题材总得分{genre_concentration*100:.0f}%",
             "secondary_signal": f"次要题材信号: {', '.join(genre_evidence.get(secondary[0], ['无'])[:2]) if secondary else '无明显次要题材'}",
+            "signal_not_matched": not_matched,
         },
         "genre_scores": dict(sorted_genres),
         "tag_distribution": dict(tag_counter.most_common(10)),
@@ -258,7 +282,10 @@ def infer_narrative_style(structure_rows: list[dict], interpretation_rows: list[
     has_switch = switch_points > 0
     num_perspectives = len(perspective_counter)
 
-    if has_switch or num_perspectives >= 3:
+    # v3.15.2 T-138（F3）：多视角判定收紧——原条件"有切换或≥3种视角"过松，
+    # 《活着》48 段全第一人称、仅 1 处切换也误判为多视角。
+    # 新条件：至少 2 处真实切换 且 视角种类 ≥2（且主导占比 <0.9）才判多视角
+    if (switch_points >= 2 and num_perspectives >= 2 and dominant_ratio < 0.9):
         style_type = "多视角叙事"
     elif dominant_perspective[0] == "第一人称" and dominant_ratio > 0.5:
         style_type = "第一人称叙述"

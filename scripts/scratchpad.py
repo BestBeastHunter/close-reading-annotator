@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 scripts/scratchpad.py — Runtime Scratchpad（运行时便签本）v3.13.2
@@ -591,6 +591,7 @@ class Scratchpad:
         emotion: Optional[dict] = None,
         craft: Optional[dict] = None,
         interpretation: Optional[dict] = None,
+        segment_text: str = "",
     ) -> dict:
         """
         从单段批注结果中提取新人物/事件，更新 Scratchpad。
@@ -615,6 +616,11 @@ class Scratchpad:
                 else:
                     target_name = ""
             else:
+                target_name = ""
+            # v3.15.2 T-142（F7）：情感对象若是明确物/抽象词（非人物），不入人物表
+            NON_PERSON_TARGETS = ("家产", "财产", "钱", "房子", "土地", "家", "牛",
+                                  "城市", "世界", "命运", "生活", "时间", "枪", "车")
+            if target_name and any(t == target_name or target_name.startswith(t) for t in NON_PERSON_TARGETS):
                 target_name = ""
             if target_name:
                 # v3.13.2 T-118 新增：第三人称代词最近匹配
@@ -755,14 +761,29 @@ class Scratchpad:
         if structure:
             d01 = structure.get("D01")
             if d01 in TRIGGER_EVENT_D01:
-                # 生成事件描述：D01功能 + 段摘要（取 D04 情感或 D10 对话信息）
+                # v3.15.2 T-142（F7）：事件描述真实化——优先用段文本首句（真实事件内容），
+                # 替代旧的"D01（情感，强度N）"模板描述
                 d04 = structure.get("D04") or {}
                 intensity = d04.get("intensity", 0)
                 emotion_label = d04.get("core", "")
-                desc_parts = [f"{d01}"]
-                if emotion_label:
-                    desc_parts.append(f"（{emotion_label}，强度{intensity}）")
-                event_desc = "".join(desc_parts)[:50]
+                event_desc = f"{d01}"
+                _seg_text = (segment_text or "").strip()
+                if _seg_text:
+                    # 去掉首尾引号，取首个完整句
+                    _t = _seg_text.strip(chr(34) + chr(39) + chr(8220) + chr(8221) + " ")
+                    for _end in ("。", "！", "？"):
+                        _i = _t.find(_end)
+                        if _i > 0:
+                            _t = _t[:_i + 1]
+                            break
+                    _t = _t.replace(chr(13), " ").replace(chr(10), " ").strip()
+                    _t = _t.strip(chr(34) + chr(39) + chr(8220) + chr(8221) + " ")
+                    _t = _t[:40]
+                    if _t:
+                        event_desc = f"{d01}：{_t}"
+                elif emotion_label:
+                    event_desc = f"{d01}（{emotion_label}，强度{intensity}）"
+                event_desc = event_desc[:50]
 
                 # 涉及人物：本段已知人物
                 involved = [
@@ -796,11 +817,24 @@ class Scratchpad:
                     # content 可能是 str 或 dict（A-AUDIT 否决②防御）
                     raw_content = d06.get("content", "")
                     if isinstance(raw_content, dict):
-                        content = str(raw_content.get("text") or raw_content.get("description") or "")[:30]
+                        content = str(raw_content.get("text") or raw_content.get("description") or "")
                     elif isinstance(raw_content, str):
-                        content = raw_content[:30]
+                        content = raw_content
                     else:
-                        content = str(raw_content)[:30]
+                        content = str(raw_content)
+                    # v3.15.2 T-142（F7）：清理"本段揭示了关键信息："类模板前缀，
+                    # 提取真实信息内容（按首个句号/感叹号截断）
+                    for _prefix in ("本段揭示了关键信息：", "本段隐藏了关键信息：", "本段揭露了关键信息：",
+                                    "揭示了关键信息：", "隐藏了关键信息：", "关键信息："):
+                        if content.startswith(_prefix):
+                            content = content[len(_prefix):]
+                            break
+                    for _end in ("。", "！", "？", "；"):
+                        _i = content.find(_end)
+                        if _i > 0:
+                            content = content[:_i + 1]
+                            break
+                    content = content.strip()[:30]
                     event_desc = f"信息{d06_norm}：{content}"[:50]
                     event_id = self.add_event(
                         segment_id=segment_id,

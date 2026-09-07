@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 v3.7 Step — 叙事结构分析（Narrative Structure Analysis）
@@ -191,8 +191,14 @@ def analyze_focalization(anns: list[dict]) -> dict:
     has_narrator_identity = False
 
     for a in anns:
-        d07 = a["layers"]["structure"].get("D07", {})
+        # v3.15.2 T-139：行结构防御——merged/顶层结构等行形态兼容，
+        # 避免 KeyError（F4：focalization=null 的潜在根因之一）
+        _layer = (a.get("layers") or {}).get("structure") or a.get("structure") or {}
+        d07 = _layer.get("D07") or {}
         d07_type = d07.get("type", "未知")
+        if not isinstance(d07, dict):
+            d07 = {}
+            d07_type = "未知"
         d07_types[d07_type] += 1
         if d07.get("is_switch_point"):
             switch_points += 1
